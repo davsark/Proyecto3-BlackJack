@@ -1,4 +1,4 @@
-rootProject.name = "PSPProyecto3BlackJack"
+rootProject.name = "BlackJack"
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {
@@ -33,3 +33,4 @@ plugins {
 }
 
 include(":composeApp")
+include(":server")
