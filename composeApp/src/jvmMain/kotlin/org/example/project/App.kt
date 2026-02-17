@@ -1,48 +1,164 @@
 package org.example.project
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.safeContentPadding
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import org.jetbrains.compose.resources.painterResource
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.example.project.ui.*
+import org.example.project.viewmodel.GameUiState
+import org.example.project.viewmodel.GameViewModel
+import kotlin.system.exitProcess
 
-import pspproyecto3blackjack.composeapp.generated.resources.Res
-import pspproyecto3blackjack.composeapp.generated.resources.compose_multiplatform
-
+/**
+ * Aplicación principal de Blackjack
+ * 
+ * FLUJO SIMPLIFICADO (estilo casino real):
+ * 
+ * 1. MainMenu → Seleccionar modo (PVE/PVP)
+ * 2. Connecting → Conectar al servidor
+ * 3. Connected → Introducir nombre y sentarse en mesa
+ * 4. AtTable → PANTALLA PRINCIPAL con flujo continuo:
+ *    - Fase BETTING: Elegir apuesta
+ *    - Fase PLAYING: Jugar la mano
+ *    - Fase RESULT: Ver resultado → Repetir apuesta o cambiar
+ *    - (El jugador decide cuándo irse)
+ * 5. ShowingRecords/ShowingHistory → Ver estadísticas
+ */
 @Composable
-@Preview
 fun App() {
     MaterialTheme {
-        var showContent by remember { mutableStateOf(false) }
-        Column(
-            modifier = Modifier
-                .background(MaterialTheme.colorScheme.primaryContainer)
-                .safeContentPadding()
-                .fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Button(onClick = { showContent = !showContent }) {
-                Text("Click me!")
+        val viewModel: GameViewModel = viewModel { GameViewModel() }
+        
+        // Estados principales
+        val uiState by viewModel.uiState.collectAsState()
+        val numberOfDecks by viewModel.numberOfDecks.collectAsState()
+        
+        // Estados de la mesa
+        val tablePhase by viewModel.tablePhase.collectAsState()
+        val playerChips by viewModel.playerChips.collectAsState()
+        val currentBet by viewModel.currentBet.collectAsState()
+        val lastBet by viewModel.lastBet.collectAsState()
+        val minBet by viewModel.minBet.collectAsState()
+        val maxBet by viewModel.maxBet.collectAsState()
+        val gameState by viewModel.currentGameState.collectAsState()
+        val gameResult by viewModel.gameResult.collectAsState()
+        
+        // Otros estados
+        val records by viewModel.records.collectAsState()
+        val handHistory by viewModel.handHistory.collectAsState()
+
+        when (uiState) {
+            // ═══════════════════════════════════════════════════════════════
+            // MENÚ PRINCIPAL
+            // ═══════════════════════════════════════════════════════════════
+            is GameUiState.MainMenu -> {
+                MainMenuScreen(
+                    onPlayPVE = { viewModel.startPVE() },
+                    onPlayPVP = { viewModel.startPVP() },
+                    onShowRecords = { 
+                        // Conectar para ver records
+                        viewModel.connect("localhost", 9999)
+                    },
+                    onShowConfig = { viewModel.showConfig() },
+                    onExit = { exitProcess(0) }
+                )
             }
-            AnimatedVisibility(showContent) {
-                val greeting = remember { Greeting().greet() }
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Image(painterResource(Res.drawable.compose_multiplatform), null)
-                    Text("Compose: $greeting")
-                }
+
+            // ═══════════════════════════════════════════════════════════════
+            // CONFIGURACIÓN
+            // ═══════════════════════════════════════════════════════════════
+            is GameUiState.ShowingConfig -> {
+                ConfigScreen(
+                    currentDecks = numberOfDecks,
+                    onDecksChange = { viewModel.setNumberOfDecks(it) },
+                    onBack = { viewModel.backToMenu() }
+                )
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // CONEXIÓN
+            // ═══════════════════════════════════════════════════════════════
+            is GameUiState.Connecting -> {
+                ConnectionScreen(
+                    onConnect = { host, port ->
+                        viewModel.connect(host, port)
+                    }
+                )
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // SENTARSE EN LA MESA (introducir nombre)
+            // ═══════════════════════════════════════════════════════════════
+            is GameUiState.Connected -> {
+                JoinGameScreen(
+                    onJoinGame = { playerName, gameMode ->
+                        viewModel.joinTable(playerName, gameMode)
+                    }
+                )
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // MESA DE JUEGO - Pantalla principal unificada
+            // ═══════════════════════════════════════════════════════════════
+            is GameUiState.AtTable -> {
+                TableScreen(
+                    // Estado
+                    tablePhase = tablePhase,
+                    playerChips = playerChips,
+                    currentBet = currentBet,
+                    lastBet = lastBet,
+                    minBet = minBet,
+                    maxBet = maxBet,
+                    gameState = gameState,
+                    gameResult = gameResult,
+                    
+                    // Acciones de apuesta
+                    onPlaceBet = { amount, hands -> viewModel.placeBet(amount, hands) },
+                    onRepeatLastBet = { viewModel.repeatLastBet() },
+                    
+                    // Acciones de juego
+                    onHit = { viewModel.hit() },
+                    onStand = { viewModel.stand() },
+                    onDouble = { viewModel.double() },
+                    onSplit = { viewModel.split() },
+                    onSurrender = { viewModel.surrender() },
+                    
+                    // Navegación
+                    onContinuePlaying = { viewModel.continuePlaying() },
+                    onShowRecords = { viewModel.requestRecords() },
+                    onShowHistory = { viewModel.requestHistory() },
+                    onLeaveTable = { viewModel.leaveTable() }
+                )
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // RECORDS
+            // ═══════════════════════════════════════════════════════════════
+            is GameUiState.ShowingRecords -> {
+                RecordsScreen(
+                    records = records,
+                    onBack = { viewModel.backToGame() }
+                )
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // HISTORIAL DE MANOS
+            // ═══════════════════════════════════════════════════════════════
+            is GameUiState.ShowingHistory -> {
+                HistoryScreen(
+                    history = handHistory,
+                    onBack = { viewModel.backToGame() }
+                )
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // ERROR
+            // ═══════════════════════════════════════════════════════════════
+            is GameUiState.Error -> {
+                ErrorScreen(
+                    message = (uiState as GameUiState.Error).message,
+                    onDismiss = { viewModel.clearError() },
+                    onDisconnect = { viewModel.leaveTable() }
+                )
             }
         }
     }

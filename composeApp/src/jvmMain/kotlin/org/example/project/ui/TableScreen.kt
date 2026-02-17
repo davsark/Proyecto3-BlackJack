@@ -1,0 +1,939 @@
+package org.example.project.ui
+
+import androidx.compose.animation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import org.example.project.protocol.*
+import org.example.project.ui.common.CardImage
+
+/**
+ * Pantalla de mesa unificada - Flujo continuo estilo casino
+ * 
+ * Fases:
+ * 1. BETTING - Esperando apuesta del jugador
+ * 2. PLAYING - Turno del jugador (Hit/Stand/Double/Split/Surrender)
+ * 3. DEALER_TURN - El dealer juega
+ * 4. RESULT - Mostrando resultado (transición automática a BETTING)
+ */
+@Composable
+fun TableScreen(
+    // Estado
+    tablePhase: TablePhase,
+    playerChips: Int,
+    currentBet: Int,
+    lastBet: Int,
+    minBet: Int,
+    maxBet: Int,
+    gameState: ServerMessage.GameState?,
+    gameResult: ServerMessage.GameResult?,
+    
+    // Acciones de apuesta
+    onPlaceBet: (amount: Int, hands: Int) -> Unit,
+    onRepeatLastBet: () -> Unit,
+    
+    // Acciones de juego
+    onHit: () -> Unit,
+    onStand: () -> Unit,
+    onDouble: () -> Unit,
+    onSplit: () -> Unit,
+    onSurrender: () -> Unit,
+    
+    // Acciones de navegación
+    onContinuePlaying: () -> Unit,
+    onShowRecords: () -> Unit,
+    onShowHistory: () -> Unit,
+    onLeaveTable: () -> Unit
+) {
+    var selectedBet by remember { mutableStateOf(lastBet.coerceIn(minBet, maxBet)) }
+    var numberOfHands by remember { mutableStateOf(1) }
+    var showResultOverlay by remember { mutableStateOf(false) }
+    
+    // Mostrar overlay cuando hay resultado
+    LaunchedEffect(tablePhase) {
+        showResultOverlay = tablePhase == TablePhase.RESULT
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF0D4F21),
+                        Color(0xFF1B5E20),
+                        Color(0xFF2E7D32),
+                        Color(0xFF1B5E20),
+                        Color(0xFF0D4F21)
+                    )
+                )
+            )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            // ═══════════════════════════════════════════════════════════════
+            // BARRA SUPERIOR - Siempre visible
+            // ═══════════════════════════════════════════════════════════════
+            TableTopBar(
+                playerChips = playerChips,
+                currentBet = if (tablePhase == TablePhase.BETTING) 0 else currentBet,
+                onShowRecords = onShowRecords,
+                onShowHistory = onShowHistory,
+                onLeaveTable = onLeaveTable
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // ═══════════════════════════════════════════════════════════════
+            // ZONA DEL DEALER
+            // ═══════════════════════════════════════════════════════════════
+            DealerZone(
+                cards = gameState?.dealerHand ?: emptyList(),
+                score = gameState?.dealerScore ?: 0,
+                showScore = tablePhase == TablePhase.RESULT || tablePhase == TablePhase.DEALER_TURN,
+                isActive = tablePhase == TablePhase.DEALER_TURN
+            )
+
+            Spacer(modifier = Modifier.weight(0.3f))
+
+            // ═══════════════════════════════════════════════════════════════
+            // ZONA CENTRAL - Mensaje de estado
+            // ═══════════════════════════════════════════════════════════════
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                when (tablePhase) {
+                    TablePhase.BETTING -> {
+                        Text(
+                            text = "💰 REALIZA TU APUESTA",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFFD700),
+                            letterSpacing = 2.sp
+                        )
+                    }
+                    TablePhase.PLAYING -> {
+                        Text(
+                            text = "🎴 TU TURNO",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            letterSpacing = 2.sp
+                        )
+                    }
+                    TablePhase.DEALER_TURN -> {
+                        Text(
+                            text = "🎰 TURNO DEL DEALER...",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFFA726),
+                            letterSpacing = 2.sp
+                        )
+                    }
+                    TablePhase.RESULT -> {
+                        // Se muestra en overlay
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.weight(0.3f))
+
+            // ═══════════════════════════════════════════════════════════════
+            // ZONA DEL JUGADOR
+            // ═══════════════════════════════════════════════════════════════
+            PlayerZone(
+                cards = gameState?.playerHand ?: emptyList(),
+                score = gameState?.playerScore ?: 0,
+                splitHand = gameState?.splitHand,
+                splitScore = gameState?.splitScore,
+                bustProbability = gameState?.bustProbability ?: 0.0,
+                isActive = tablePhase == TablePhase.PLAYING,
+                showCards = tablePhase != TablePhase.BETTING
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // ═══════════════════════════════════════════════════════════════
+            // ZONA DE CONTROLES - Cambia según la fase
+            // ═══════════════════════════════════════════════════════════════
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E).copy(alpha = 0.95f))
+            ) {
+                when (tablePhase) {
+                    TablePhase.BETTING -> {
+                        BettingControls(
+                            playerChips = playerChips,
+                            minBet = minBet,
+                            maxBet = maxBet,
+                            selectedBet = selectedBet,
+                            numberOfHands = numberOfHands,
+                            lastBet = lastBet,
+                            onBetChange = { selectedBet = it },
+                            onHandsChange = { 
+                                numberOfHands = it
+                                // Ajustar apuesta si es necesario
+                                val newMaxBet = minOf(maxBet, playerChips / it)
+                                if (selectedBet > newMaxBet) {
+                                    selectedBet = newMaxBet
+                                }
+                            },
+                            onPlaceBet = { onPlaceBet(selectedBet, numberOfHands) },
+                            onRepeatLastBet = {
+                                if (lastBet in minBet..minOf(maxBet, playerChips)) {
+                                    onPlaceBet(lastBet, 1)
+                                }
+                            }
+                        )
+                    }
+                    
+                    TablePhase.PLAYING -> {
+                        PlayingControls(
+                            canHit = gameState?.canRequestCard ?: false,
+                            canStand = gameState?.canStand ?: false,
+                            canDouble = gameState?.canDouble ?: false,
+                            canSplit = gameState?.canSplit ?: false,
+                            canSurrender = gameState?.canSurrender ?: false,
+                            onHit = onHit,
+                            onStand = onStand,
+                            onDouble = onDouble,
+                            onSplit = onSplit,
+                            onSurrender = onSurrender
+                        )
+                    }
+                    
+                    TablePhase.DEALER_TURN -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                color = Color(0xFFFFD700),
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+                    }
+                    
+                    TablePhase.RESULT -> {
+                        ResultControls(
+                            canContinue = playerChips >= minBet,
+                            lastBet = lastBet,
+                            playerChips = playerChips,
+                            minBet = minBet,
+                            maxBet = maxBet,
+                            onContinue = onContinuePlaying,
+                            onRepeatBet = {
+                                if (lastBet in minBet..minOf(maxBet, playerChips)) {
+                                    onPlaceBet(lastBet, 1)
+                                } else {
+                                    onContinuePlaying()
+                                }
+                            },
+                            onLeaveTable = onLeaveTable
+                        )
+                    }
+                }
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // OVERLAY DE RESULTADO
+        // ═══════════════════════════════════════════════════════════════
+        AnimatedVisibility(
+            visible = showResultOverlay && gameResult != null,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut()
+        ) {
+            gameResult?.let { result ->
+                ResultOverlay(
+                    result = result,
+                    onDismiss = { showResultOverlay = false }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Fases de la mesa
+ */
+enum class TablePhase {
+    BETTING,      // Esperando apuesta
+    PLAYING,      // Turno del jugador
+    DEALER_TURN,  // Turno del dealer
+    RESULT        // Mostrando resultado
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COMPONENTES
+// ═══════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun TableTopBar(
+    playerChips: Int,
+    currentBet: Int,
+    onShowRecords: () -> Unit,
+    onShowHistory: () -> Unit,
+    onLeaveTable: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Logo
+        Text(
+            text = "🎰 BLACKJACK",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFFFFD700)
+        )
+
+        // Fichas
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ChipBadge(label = "💰", value = playerChips, color = Color(0xFF2ECC71))
+            if (currentBet > 0) {
+                ChipBadge(label = "🎯", value = currentBet, color = Color(0xFFE74C3C))
+            }
+        }
+
+        // Botones
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            IconButton(onClick = onShowHistory) {
+                Text("📜", fontSize = 18.sp)
+            }
+            IconButton(onClick = onShowRecords) {
+                Text("🏆", fontSize = 18.sp)
+            }
+            IconButton(onClick = onLeaveTable) {
+                Text("🚪", fontSize = 18.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChipBadge(label: String, value: Int, color: Color) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .background(Color(0xFF2C3E50), RoundedCornerShape(20.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Text(text = label, fontSize = 14.sp)
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = "$value",
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = color
+        )
+    }
+}
+
+@Composable
+private fun DealerZone(
+    cards: List<Card>,
+    score: Int,
+    showScore: Boolean,
+    isActive: Boolean
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "DEALER",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (isActive) Color(0xFFFFD700) else Color.White.copy(alpha = 0.7f),
+            letterSpacing = 3.sp
+        )
+        
+        if (showScore && score > 0) {
+            Text(
+                text = "$score",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = when {
+                    score > 21 -> Color(0xFFFF5252)
+                    score == 21 -> Color(0xFFFFD700)
+                    else -> Color.White
+                }
+            )
+        }
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        if (cards.isNotEmpty()) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy((-25).dp)
+            ) {
+                cards.forEachIndexed { index, card ->
+                    CardImage(
+                        card = card,
+                        cardWidth = 60.dp,
+                        cardHeight = 84.dp
+                    )
+                }
+            }
+        } else {
+            // Placeholder
+            Box(
+                modifier = Modifier
+                    .width(60.dp)
+                    .height(84.dp)
+                    .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                    .border(2.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlayerZone(
+    cards: List<Card>,
+    score: Int,
+    splitHand: List<Card>?,
+    splitScore: Int?,
+    bustProbability: Double,
+    isActive: Boolean,
+    showCards: Boolean
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        if (showCards && cards.isNotEmpty()) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy((-25).dp)
+            ) {
+                cards.forEachIndexed { index, card ->
+                    CardImage(
+                        card = card,
+                        cardWidth = 65.dp,
+                        cardHeight = 91.dp
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "$score",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = when {
+                        score > 21 -> Color(0xFFFF5252)
+                        score == 21 -> Color(0xFFFFD700)
+                        else -> Color.White
+                    }
+                )
+                
+                if (bustProbability > 0 && score < 21 && isActive) {
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(
+                        text = "⚠️ ${(bustProbability * 100).toInt()}%",
+                        fontSize = 12.sp,
+                        color = when {
+                            bustProbability > 0.5 -> Color(0xFFFF5252)
+                            bustProbability > 0.3 -> Color(0xFFFFA726)
+                            else -> Color(0xFF4CAF50)
+                        }
+                    )
+                }
+            }
+        } else {
+            // Placeholder cuando no hay cartas
+            Box(
+                modifier = Modifier
+                    .width(65.dp)
+                    .height(91.dp)
+                    .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                    .border(2.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("?", fontSize = 24.sp, color = Color.White.copy(alpha = 0.5f))
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(4.dp))
+        
+        Text(
+            text = "TU MANO",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (isActive) Color(0xFFFFD700) else Color.White.copy(alpha = 0.7f),
+            letterSpacing = 3.sp
+        )
+    }
+}
+
+@Composable
+private fun BettingControls(
+    playerChips: Int,
+    minBet: Int,
+    maxBet: Int,
+    selectedBet: Int,
+    numberOfHands: Int,
+    lastBet: Int,
+    onBetChange: (Int) -> Unit,
+    onHandsChange: (Int) -> Unit,
+    onPlaceBet: () -> Unit,
+    onRepeatLastBet: () -> Unit
+) {
+    val actualMaxBet = minOf(maxBet, playerChips / numberOfHands)
+    val totalBet = selectedBet * numberOfHands
+    
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Selector de número de manos
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Manos:", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
+            listOf(1, 2, 3).forEach { hands ->
+                val canAfford = minBet * hands <= playerChips
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (numberOfHands == hands) Color(0xFF9B59B6) 
+                            else if (canAfford) Color(0xFF34495E) 
+                            else Color.Gray.copy(alpha = 0.3f)
+                        )
+                        .clickable(enabled = canAfford) { onHandsChange(hands) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "$hands",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // Selector de apuesta
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            IconButton(
+                onClick = { 
+                    val newBet = (selectedBet - minBet).coerceAtLeast(minBet)
+                    onBetChange(newBet)
+                },
+                enabled = selectedBet > minBet
+            ) {
+                Text("➖", fontSize = 20.sp)
+            }
+            
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            ) {
+                Text(
+                    text = "$selectedBet",
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF2ECC71)
+                )
+                if (numberOfHands > 1) {
+                    Text(
+                        text = "× $numberOfHands = $totalBet",
+                        fontSize = 12.sp,
+                        color = Color(0xFFFFD700)
+                    )
+                }
+            }
+            
+            IconButton(
+                onClick = { 
+                    val newBet = (selectedBet + minBet).coerceAtMost(actualMaxBet)
+                    onBetChange(newBet)
+                },
+                enabled = selectedBet < actualMaxBet
+            ) {
+                Text("➕", fontSize = 20.sp)
+            }
+        }
+        
+        // Fichas rápidas
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(vertical = 8.dp)
+        ) {
+            listOf(10, 25, 50, 100).filter { it <= actualMaxBet }.forEach { chip ->
+                ChipButton(
+                    value = chip,
+                    isSelected = selectedBet == chip,
+                    onClick = { onBetChange(chip) }
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        // Botones de acción
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            // Repetir última apuesta
+            if (lastBet in minBet..minOf(maxBet, playerChips)) {
+                OutlinedButton(
+                    onClick = onRepeatLastBet,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("🔄 $lastBet", color = Color.White)
+                }
+            }
+            
+            // Apostar
+            Button(
+                onClick = onPlaceBet,
+                enabled = totalBet <= playerChips && selectedBet >= minBet,
+                modifier = Modifier.weight(if (lastBet > 0) 1f else 2f),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2ECC71))
+            ) {
+                Text(
+                    text = "🎴 REPARTIR",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChipButton(value: Int, isSelected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(
+                if (isSelected) Color(0xFF2ECC71) else Color(0xFF34495E)
+            )
+            .border(2.dp, Color(0xFFFFD700), CircleShape)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "$value",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
+    }
+}
+
+@Composable
+private fun PlayingControls(
+    canHit: Boolean,
+    canStand: Boolean,
+    canDouble: Boolean,
+    canSplit: Boolean,
+    canSurrender: Boolean,
+    onHit: () -> Unit,
+    onStand: () -> Unit,
+    onDouble: () -> Unit,
+    onSplit: () -> Unit,
+    onSurrender: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+    ) {
+        // Fila principal
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            ActionButton(
+                text = "🎴 PEDIR",
+                enabled = canHit,
+                color = Color(0xFF2ECC71),
+                modifier = Modifier.weight(1f),
+                onClick = onHit
+            )
+            ActionButton(
+                text = "✋ PLANTARSE",
+                enabled = canStand,
+                color = Color(0xFFF39C12),
+                modifier = Modifier.weight(1f),
+                onClick = onStand
+            )
+        }
+        
+        Spacer(modifier = Modifier.height(10.dp))
+        
+        // Fila secundaria
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            ActionButton(
+                text = "💰 DOBLAR",
+                enabled = canDouble,
+                color = Color(0xFF3498DB),
+                modifier = Modifier.weight(1f),
+                small = true,
+                onClick = onDouble
+            )
+            ActionButton(
+                text = "✂️ DIVIDIR",
+                enabled = canSplit,
+                color = Color(0xFF9B59B6),
+                modifier = Modifier.weight(1f),
+                small = true,
+                onClick = onSplit
+            )
+            ActionButton(
+                text = "🏳️ RENDIRSE",
+                enabled = canSurrender,
+                color = Color(0xFFE74C3C),
+                modifier = Modifier.weight(1f),
+                small = true,
+                onClick = onSurrender
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActionButton(
+    text: String,
+    enabled: Boolean,
+    color: Color,
+    modifier: Modifier = Modifier,
+    small: Boolean = false,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.height(if (small) 44.dp else 52.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = color,
+            disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
+        )
+    ) {
+        Text(
+            text = text,
+            fontSize = if (small) 12.sp else 15.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (enabled) Color.White else Color.White.copy(alpha = 0.5f)
+        )
+    }
+}
+
+@Composable
+private fun ResultControls(
+    canContinue: Boolean,
+    lastBet: Int,
+    playerChips: Int,
+    minBet: Int,
+    maxBet: Int,
+    onContinue: () -> Unit,
+    onRepeatBet: () -> Unit,
+    onLeaveTable: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        if (canContinue) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Repetir apuesta
+                if (lastBet in minBet..minOf(maxBet, playerChips)) {
+                    Button(
+                        onClick = onRepeatBet,
+                        modifier = Modifier.weight(1f).height(52.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2ECC71))
+                    ) {
+                        Text(
+                            text = "🔄 REPETIR ($lastBet)",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                
+                // Cambiar apuesta
+                OutlinedButton(
+                    onClick = onContinue,
+                    modifier = Modifier.weight(1f).height(52.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("💰 CAMBIAR APUESTA", color = Color.White, fontSize = 12.sp)
+                }
+            }
+        } else {
+            Text(
+                text = "💸 Te has quedado sin fichas",
+                color = Color(0xFFE74C3C),
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+        }
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        TextButton(onClick = onLeaveTable) {
+            Text("🚪 Abandonar mesa", color = Color.White.copy(alpha = 0.6f))
+        }
+    }
+}
+
+@Composable
+private fun ResultOverlay(
+    result: ServerMessage.GameResult,
+    onDismiss: () -> Unit
+) {
+    val (emoji, text, bgColor) = when (result.result) {
+        GameResultType.BLACKJACK -> Triple("🎰", "¡BLACKJACK!", Color(0xFFFFD700))
+        GameResultType.WIN -> Triple("🎉", "¡GANASTE!", Color(0xFF2ECC71))
+        GameResultType.LOSE -> Triple("💔", "PERDISTE", Color(0xFFE74C3C))
+        GameResultType.PUSH -> Triple("🤝", "EMPATE", Color(0xFFF39C12))
+        GameResultType.SURRENDER -> Triple("🏳️", "RENDICIÓN", Color(0xFF9E9E9E))
+    }
+    
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.7f))
+            .clickable { onDismiss() },
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier
+                .widthIn(max = 320.dp)
+                .padding(24.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = bgColor)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(text = emoji, fontSize = 64.sp)
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Text(
+                    text = text,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Puntuaciones
+                Row(
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Tú", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                        Text(
+                            "${result.playerFinalScore}",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp
+                        )
+                    }
+                    Text("vs", color = Color.White.copy(alpha = 0.5f), fontSize = 16.sp)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Dealer", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                        Text(
+                            "${result.dealerFinalScore}",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Pago
+                Text(
+                    text = when {
+                        result.payout > 0 -> "+${result.payout} fichas"
+                        result.payout < 0 -> "${result.payout} fichas"
+                        else -> "±0 fichas"
+                    },
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                
+                Text(
+                    text = "Total: ${result.newChipsTotal}",
+                    fontSize = 14.sp,
+                    color = Color.White.copy(alpha = 0.8f)
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(
+                    text = "Toca para continuar",
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.6f)
+                )
+            }
+        }
+    }
+}
