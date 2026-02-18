@@ -1,0 +1,32 @@
+[
+    {
+        "playerName": "david",
+        "wins": 6,
+        "losses": 4,
+        "blackjacks": 3,
+        "timestamp": 1770312670674
+    },
+    {
+        "playerName": "David",
+        "wins": 3,
+        "losses": 4,
+        "blackjacks": 0,
+        "timestamp": 1771238882093,
+        "maxChips": 1200,
+        "currentStreak": 1,
+        "bestStreak": 1,
+        "gamesPlayed": 2
+    },
+    {
+        "playerName": "hy",
+        "wins": 1,
+        "losses": 7,
+        "blackjacks": 0,
+        "timestamp": 1770312967313,
+        "maxChips": 1200,
+        "currentStreak": -1,
+        "bestStreak": 1,
+        "totalGain": -370,
+        "gamesPlayed": 8
+    }
+]
