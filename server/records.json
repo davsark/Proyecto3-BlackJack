@@ -18,6 +18,29 @@
         "gamesPlayed": 2
     },
     {
+        "playerName": "1",
+        "wins": 2,
+        "losses": 1,
+        "blackjacks": 0,
+        "timestamp": 1771253946303,
+        "maxChips": 1150,
+        "currentStreak": 1,
+        "bestStreak": 1,
+        "totalGain": 50,
+        "gamesPlayed": 3
+    },
+    {
+        "playerName": "y",
+        "wins": 2,
+        "losses": 2,
+        "blackjacks": 0,
+        "timestamp": 1771344705419,
+        "currentStreak": -1,
+        "bestStreak": 2,
+        "totalGain": 110,
+        "gamesPlayed": 4
+    },
+    {
         "playerName": "hy",
         "wins": 1,
         "losses": 7,

@@ -17,11 +17,15 @@ import java.util.*
 
 /**
  * Maneja la comunicación con un cliente individual
+ * 
+ * En modo PVE: Juega contra el dealer local
+ * En modo PVP: Se une a una mesa compartida con otros jugadores
  */
 class ClientHandler(
     private val socket: Socket,
     private val recordsManager: RecordsManager,
-    private val gameSettings: GameSettings
+    private val gameSettings: GameSettings,
+    private val tableManager: TableManager
 ) {
     private val playerId = UUID.randomUUID().toString()
     private var playerName: String = "Jugador"
@@ -29,10 +33,13 @@ class ClientHandler(
     private lateinit var output: BufferedWriter
     private val json = Json { ignoreUnknownKeys = true }
 
-    // Estado del juego
+    // Estado del juego (PVE)
     private val deck = Deck(gameSettings.numberOfDecks)
     private lateinit var dealerAI: DealerAI
     private var gameMode: GameMode? = null
+    
+    // Mesa PvP (cuando está en modo PVP)
+    private var currentTable: Table? = null
     
     // Sistema de fichas y apuestas
     private var playerChips: Int = gameSettings.initialChips
@@ -92,6 +99,10 @@ class ClientHandler(
         } catch (e: Exception) {
             println("❌ Error en ClientHandler para $playerName: ${e.message}")
         } finally {
+            // Limpieza PvP
+            if (gameMode == GameMode.PVP) {
+                tableManager.removePlayer(playerId)
+            }
             cleanup()
         }
     }
@@ -128,20 +139,29 @@ class ClientHandler(
 
         when (message.gameMode) {
             GameMode.PVE -> {
-                dealerAI = DealerAI(deck, gameSettings)
+                // Modo solitario — usar settings del cliente si las envió
+                val effectiveSettings = message.settings?.let { s ->
+                    gameSettings.copy(
+                        numberOfDecks      = s.numberOfDecks,
+                        blackjackPayout    = s.blackjackPayout,
+                        dealerHitsOnSoft17 = s.dealerHitsOnSoft17,
+                        allowDoubleAfterSplit = s.allowDoubleAfterSplit,
+                        allowSurrender     = s.allowSurrender,
+                        maxSplits          = s.maxSplits
+                    )
+                } ?: gameSettings
+                dealerAI = DealerAI(deck, effectiveSettings)
                 sendMessage(ServerMessage.JoinConfirmation(
                     playerId = playerId,
                     message = "Bienvenido $playerName. Modo: Jugador vs Dealer",
                     initialChips = playerChips
                 ))
-                // Enviar estado de la mesa
                 sendMessage(ServerMessage.TableState(
                     players = listOf(PlayerInfo(playerName, 0, 0, false, playerChips, 0)),
                     minBet = gameSettings.minBet,
                     maxBet = gameSettings.maxBet,
                     currentPlayerChips = playerChips
                 ))
-                // Solicitar apuesta
                 sendMessage(ServerMessage.RequestBet(
                     minBet = gameSettings.minBet,
                     maxBet = minOf(gameSettings.maxBet, playerChips),
@@ -149,34 +169,44 @@ class ClientHandler(
                 ))
             }
             GameMode.PVP -> {
-                dealerAI = DealerAI(deck, gameSettings)
+                // Modo multijugador - unirse a mesa compartida
                 sendMessage(ServerMessage.JoinConfirmation(
                     playerId = playerId,
-                    message = "Bienvenido $playerName. Modo PVP - Compitiendo contra otros jugadores",
+                    message = "Bienvenido $playerName. Buscando mesa PvP...",
                     initialChips = playerChips
                 ))
-                sendMessage(ServerMessage.TableState(
-                    players = listOf(PlayerInfo(playerName, 0, 0, false, playerChips, 0)),
-                    minBet = gameSettings.minBet,
-                    maxBet = gameSettings.maxBet,
-                    currentPlayerChips = playerChips
-                ))
-                sendMessage(ServerMessage.RequestBet(
-                    minBet = gameSettings.minBet,
-                    maxBet = minOf(gameSettings.maxBet, playerChips),
-                    currentChips = playerChips
-                ))
+                
+                // Buscar o crear mesa
+                val table = tableManager.findOrCreateTable(
+                    playerId = playerId,
+                    playerName = playerName,
+                    chips = playerChips,
+                    callback = { message -> sendMessage(message) }
+                )
+                
+                if (table != null) {
+                    currentTable = table
+                    println("🎰 $playerName unido a mesa PvP: ${table.tableId}")
+                    // El estado de la mesa se enviará automáticamente desde Table
+                } else {
+                    sendError("No se pudo unir a una mesa. Intenta de nuevo.")
+                }
             }
         }
-        
-        // Enviar records al conectar
-        handleRequestRecords()
+        // Records se solicitan manualmente cuando el jugador lo pida
     }
 
     /**
-     * Maneja la apuesta del jugador (soporta múltiples manos)
+     * Maneja la apuesta del jugador (soporta múltiples manos en PVE, simple en PVP)
      */
     private suspend fun handlePlaceBet(message: ClientMessage.PlaceBet) {
+        // En modo PVP, usar la mesa compartida
+        if (gameMode == GameMode.PVP && currentTable != null) {
+            currentTable?.placeBet(playerId, message.amount)
+            return
+        }
+        
+        // Modo PVE - lógica existente
         val betAmount = message.amount
         val numHands = message.numberOfHands.coerceIn(1, 3)
         val totalBetRequired = betAmount * numHands
@@ -225,6 +255,13 @@ class ClientHandler(
      * Maneja la petición de carta
      */
     private suspend fun handleRequestCard() {
+        // En modo PVP, usar la mesa compartida
+        if (gameMode == GameMode.PVP && currentTable != null) {
+            currentTable?.playerHit(playerId)
+            return
+        }
+        
+        // Modo PVE
         if (!isInGame || !::dealerAI.isInitialized) {
             sendError("No hay juego activo")
             return
@@ -243,6 +280,13 @@ class ClientHandler(
      * Maneja cuando el jugador se planta
      */
     private suspend fun handleStand() {
+        // En modo PVP, usar la mesa compartida
+        if (gameMode == GameMode.PVP && currentTable != null) {
+            currentTable?.playerStand(playerId)
+            return
+        }
+        
+        // Modo PVE
         if (!isInGame || !::dealerAI.isInitialized) {
             sendError("No hay juego activo")
             return
@@ -251,14 +295,24 @@ class ClientHandler(
         val gameState = dealerAI.playerStand(playerId)
         sendMessage(gameState)
 
-        delay(500)
-        finishGame()
+        // Solo finalizar si el juego terminó (todas las manos completas + dealer jugó)
+        if (gameState.gameState == GamePhase.GAME_OVER) {
+            delay(500)
+            finishGame()
+        }
     }
 
     /**
      * Maneja cuando el jugador dobla
      */
     private suspend fun handleDouble() {
+        // En modo PVP, usar la mesa compartida
+        if (gameMode == GameMode.PVP && currentTable != null) {
+            currentTable?.playerDouble(playerId)
+            return
+        }
+        
+        // Modo PVE
         if (!isInGame || !::dealerAI.isInitialized) {
             sendError("No hay juego activo")
             return
@@ -276,18 +330,28 @@ class ClientHandler(
             return
         }
         
-        currentBet *= 2
-        println("🎲 $playerName dobla. Nueva apuesta: $currentBet")
+        println("🎲 $playerName dobla")
         
         sendMessage(result)
-        delay(500)
-        finishGame()
+        
+        // Solo finalizar si el juego terminó
+        if (result.gameState == GamePhase.GAME_OVER) {
+            delay(500)
+            finishGame()
+        }
     }
 
     /**
      * Maneja cuando el jugador divide
      */
     private suspend fun handleSplit() {
+        // Split no disponible en PVP por simplicidad
+        if (gameMode == GameMode.PVP) {
+            sendError("Split no disponible en modo PvP")
+            return
+        }
+        
+        // Modo PVE
         if (!isInGame || !::dealerAI.isInitialized) {
             sendError("No hay juego activo")
             return
@@ -313,6 +377,13 @@ class ClientHandler(
      * Maneja cuando el jugador se rinde
      */
     private suspend fun handleSurrender() {
+        // En modo PVP, usar la mesa compartida
+        if (gameMode == GameMode.PVP && currentTable != null) {
+            currentTable?.playerSurrender(playerId)
+            return
+        }
+        
+        // Modo PVE
         if (!isInGame || !::dealerAI.isInitialized) {
             sendError("No hay juego activo")
             return
@@ -351,7 +422,7 @@ class ClientHandler(
      * Finaliza el juego y envía el resultado
      */
     private suspend fun finishGame() {
-        val result = dealerAI.getGameResult(playerId, currentBet, playerChips)
+        val result = dealerAI.getGameResult(playerId, currentBet, playerChips - totalBet)
         
         // Actualizar fichas
         playerChips = result.newChipsTotal
@@ -366,7 +437,7 @@ class ClientHandler(
             playerHand = dealerAI.getPlayerHand(playerId),
             dealerHand = result.dealerFinalHand,
             result = result.result,
-            bet = currentBet,
+            bet = totalBet,
             payout = result.payout,
             timestamp = System.currentTimeMillis(),
             playerScore = result.playerFinalScore,
@@ -381,7 +452,7 @@ class ClientHandler(
         recordsManager.recordGameResult(
             playerName = playerName,
             result = result.result,
-            bet = currentBet,
+            bet = totalBet,
             payout = result.payout,
             finalChips = playerChips
         )

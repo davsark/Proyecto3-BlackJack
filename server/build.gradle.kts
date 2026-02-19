@@ -5,9 +5,6 @@ plugins {
 }
 
 dependencies {
-    // Proyecto común (protocolo compartido)
-    implementation(project(":composeApp"))
-
     // Corrutinas
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 
@@ -24,4 +21,13 @@ application {
 
 tasks.named<JavaExec>("run") {
     standardInput = System.`in`
+}
+
+// Manejar duplicados en tareas de distribución
+tasks.withType<Tar> {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.withType<Zip> {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }

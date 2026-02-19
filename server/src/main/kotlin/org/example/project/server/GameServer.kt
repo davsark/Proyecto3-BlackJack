@@ -29,6 +29,9 @@ class GameServer {
     
     // Configuración del juego
     val gameSettings: GameSettings
+    
+    // Gestor de mesas PvP
+    val tableManager: TableManager
 
     init {
         // Cargar configuración
@@ -62,6 +65,9 @@ class GameServer {
         println("   Apuesta máxima: ${gameSettings.maxBet}")
         println("   Número de mazos: ${gameSettings.numberOfDecks}")
         println("   Pago por Blackjack: ${gameSettings.blackjackPayout}x")
+        
+        // Inicializar gestor de mesas PvP
+        tableManager = TableManager(gameSettings, maxPlayersPerTable = 4)
     }
 
     /**
@@ -129,7 +135,7 @@ class GameServer {
 
                     // Lanzar una corrutina para manejar este cliente
                     scope.launch {
-                        val handler = ClientHandler(clientSocket, recordsManager, gameSettings)
+                        val handler = ClientHandler(clientSocket, recordsManager, gameSettings, tableManager)
                         try {
                             handler.handle()
                         } catch (e: Exception) {

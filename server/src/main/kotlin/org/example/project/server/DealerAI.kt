@@ -1,557 +1,629 @@
 package org.example.project.server
 
 import org.example.project.config.GameConfig
-import org.example.project.game.BlackjackGame
 import org.example.project.model.Deck
 import org.example.project.model.Hand
 import org.example.project.protocol.*
 
 /**
  * Inteligencia Artificial del Dealer para modo PVE y PVP
- * Implementa las reglas estándar del Blackjack con soporte para apuestas y múltiples manos
+ * 
+ * MÚLTIPLES MANOS:
+ * - El jugador puede jugar 1, 2 o 3 manos simultáneas
+ * - Cada mano se juega por separado, de izquierda a derecha
+ * - Cuando todas las manos están completas, el dealer juega
+ * - Cada mano se resuelve independientemente contra el dealer
  */
 class DealerAI(
     private val deck: Deck,
     private val gameSettings: GameSettings
 ) {
+    // Mano del dealer (compartida para todas las manos del jugador)
     private val dealerHand = Hand()
-    private val playerHands = mutableMapOf<String, Hand>()
-    private val splitHands = mutableMapOf<String, Hand>()
-    private val playerBets = mutableMapOf<String, Int>()
-    private val hasDoubled = mutableMapOf<String, Boolean>()
-    private val hasSplit = mutableMapOf<String, Boolean>()
-    private val activeSplitHand = mutableMapOf<String, Int>() // 0 = main, 1 = split
     
-    // Soporte para múltiples manos
-    private val multipleHands = mutableMapOf<String, MutableList<Hand>>()
-    private val multipleHandsBets = mutableMapOf<String, MutableList<Int>>()
-    private val multipleHandsStatus = mutableMapOf<String, MutableList<HandStatus>>()
-    private val activeHandIndex = mutableMapOf<String, Int>()
-    private val numberOfHandsPerPlayer = mutableMapOf<String, Int>()
+    // Sistema de múltiples manos
+    private data class PlayerGameState(
+        val hands: MutableList<Hand> = mutableListOf(),
+        val bets: MutableList<Int> = mutableListOf(),
+        val statuses: MutableList<HandStatus> = mutableListOf(),
+        val doubled: MutableList<Boolean> = mutableListOf(),
+        var activeHandIndex: Int = 0,
+        var numberOfHands: Int = 1
+    )
+    
+    private val playerStates = mutableMapOf<String, PlayerGameState>()
 
     /**
-     * Inicia una nueva partida (soporta múltiples manos)
+     * Inicia una nueva partida
      * @param numberOfHands Número de manos a jugar (1-3)
      */
     fun startNewGame(playerId: String, bet: Int, playerChips: Int, numberOfHands: Int = 1): ServerMessage.GameState {
-        // Limpiar manos anteriores
+        // Limpiar estado anterior
         dealerHand.clear()
-        playerHands.remove(playerId)
-        splitHands.remove(playerId)
-        playerBets[playerId] = bet
-        hasDoubled[playerId] = false
-        hasSplit[playerId] = false
-        activeSplitHand[playerId] = 0
         
-        // Configurar múltiples manos
-        numberOfHandsPerPlayer[playerId] = numberOfHands
-        activeHandIndex[playerId] = 0
+        // Crear nuevo estado del jugador
+        val state = PlayerGameState(
+            numberOfHands = numberOfHands.coerceIn(1, 4)
+        )
         
-        if (numberOfHands > 1) {
-            // Modo múltiples manos
-            val hands = mutableListOf<Hand>()
-            val bets = mutableListOf<Int>()
-            val statuses = mutableListOf<HandStatus>()
-            
-            for (i in 0 until numberOfHands) {
-                hands.add(Hand())
-                bets.add(bet)
-                statuses.add(if (i == 0) HandStatus.PLAYING else HandStatus.WAITING)
-            }
-            
-            multipleHands[playerId] = hands
-            multipleHandsBets[playerId] = bets
-            multipleHandsStatus[playerId] = statuses
-            
-            // Repartir cartas
-            for (hand in hands) {
-                hand.addCard(deck.dealCard(hidden = false))
-            }
-            dealerHand.addCard(deck.dealCard(hidden = false))
-            for (hand in hands) {
-                hand.addCard(deck.dealCard(hidden = false))
-            }
-            dealerHand.addCard(deck.dealCard(hidden = true))
-            
-            playerHands[playerId] = hands[0]
-            
-            println("🎴 Nueva partida multi-mano iniciada ($numberOfHands manos, Apuesta: $bet cada una)")
-            for ((index, hand) in hands.withIndex()) {
-                println("   Mano ${index + 1}: ${hand.getCards()} = ${hand.calculateValue()}")
-            }
-            println("   Dealer: ${dealerHand.getCards()}")
-            
-        } else {
-            // Modo mano única
-            multipleHands.remove(playerId)
-            multipleHandsBets.remove(playerId)
-            multipleHandsStatus.remove(playerId)
-            
-            val playerHand = Hand()
-            playerHands[playerId] = playerHand
-
-            playerHand.addCard(deck.dealCard(hidden = false))
-            dealerHand.addCard(deck.dealCard(hidden = false))
-            playerHand.addCard(deck.dealCard(hidden = false))
-            dealerHand.addCard(deck.dealCard(hidden = true))
-
-            println("🎴 Nueva partida iniciada (Apuesta: $bet)")
-            println("   Jugador: ${playerHand.getCards()} = ${playerHand.calculateValue()}")
-            println("   Dealer: ${dealerHand.getCards()}")
+        // Inicializar cada mano
+        for (i in 0 until state.numberOfHands) {
+            state.hands.add(Hand())
+            state.bets.add(bet)
+            state.statuses.add(if (i == 0) HandStatus.PLAYING else HandStatus.WAITING)
+            state.doubled.add(false)
         }
-
+        
+        playerStates[playerId] = state
+        
+        // Repartir cartas (como en casino real: una carta a cada mano, luego dealer, luego segunda ronda)
+        // Primera carta a cada mano
+        for (hand in state.hands) {
+            hand.addCard(deck.dealCard(hidden = false))
+        }
+        
+        // Primera carta al dealer (visible)
+        dealerHand.addCard(deck.dealCard(hidden = false))
+        
+        // Segunda carta a cada mano
+        for (hand in state.hands) {
+            hand.addCard(deck.dealCard(hidden = false))
+        }
+        
+        // Segunda carta al dealer (oculta)
+        dealerHand.addCard(deck.dealCard(hidden = true))
+        
+        // Log
+        println("🎴 Nueva partida iniciada (${state.numberOfHands} mano(s), Apuesta: $bet cada una)")
+        for ((index, hand) in state.hands.withIndex()) {
+            println("   Mano ${index + 1}: ${hand.getCards()} = ${hand.calculateValue()}")
+        }
+        println("   Dealer: ${dealerHand.getVisibleCards()} + [oculta]")
+        
+        // Verificar blackjack natural en primera mano
+        val firstHand = state.hands[0]
+        if (firstHand.isBlackjack()) {
+            state.statuses[0] = HandStatus.BLACKJACK
+            // Si solo hay una mano, pasar al dealer inmediatamente
+            if (state.numberOfHands == 1) {
+                return playDealerTurn(playerId, playerChips)
+            } else {
+                // Avanzar a la siguiente mano
+                advanceToNextHand(playerId)
+            }
+        }
+        
         return buildGameState(playerId, GamePhase.PLAYER_TURN, playerChips)
     }
 
     /**
-     * Procesa la petición de carta del jugador
+     * Jugador pide carta (HIT)
      */
     fun playerHit(playerId: String): ServerMessage.GameState {
-        val hand = getActiveHand(playerId) ?: throw IllegalStateException("Jugador no encontrado")
+        val state = playerStates[playerId] ?: throw IllegalStateException("Jugador no encontrado")
+        val hand = state.hands[state.activeHandIndex]
         val chips = estimatePlayerChips(playerId)
-
-        // Repartir carta al jugador
+        
+        // Repartir carta
         val newCard = deck.dealCard(hidden = false)
         hand.addCard(newCard)
-
-        println("🃏 Jugador pide carta: $newCard (Total: ${hand.calculateValue()})")
-
-        // Verificar si el jugador se pasó
-        return if (hand.isBusted()) {
-            println("💥 ¡Jugador se pasó! (${hand.calculateValue()})")
-            
-            // Si tiene split y está en mano principal, pasar a split
-            if (hasSplit[playerId] == true && activeSplitHand[playerId] == 0) {
-                activeSplitHand[playerId] = 1
-                buildGameState(playerId, GamePhase.PLAYER_TURN, chips)
-            } else {
-                dealerHand.revealAll()
-                buildGameState(playerId, GamePhase.GAME_OVER, chips)
+        
+        println("🃏 Mano ${state.activeHandIndex + 1} pide carta: $newCard (Total: ${hand.calculateValue()})")
+        
+        // Verificar resultado
+        return when {
+            hand.isBusted() -> {
+                println("💥 Mano ${state.activeHandIndex + 1} se pasó! (${hand.calculateValue()})")
+                state.statuses[state.activeHandIndex] = HandStatus.BUSTED
+                handleHandComplete(playerId, chips)
             }
-        } else if (hand.calculateValue() == 21) {
-            println("🎯 Jugador alcanza 21")
-            
-            if (hasSplit[playerId] == true && activeSplitHand[playerId] == 0) {
-                activeSplitHand[playerId] = 1
-                buildGameState(playerId, GamePhase.PLAYER_TURN, chips)
-            } else {
-                playDealerTurn(playerId)
+            hand.calculateValue() == 21 -> {
+                println("🎯 Mano ${state.activeHandIndex + 1} alcanza 21")
+                state.statuses[state.activeHandIndex] = HandStatus.STANDING
+                handleHandComplete(playerId, chips)
             }
-        } else {
-            buildGameState(playerId, GamePhase.PLAYER_TURN, chips)
+            else -> {
+                buildGameState(playerId, GamePhase.PLAYER_TURN, chips)
+            }
         }
     }
 
     /**
-     * Procesa cuando el jugador se planta
+     * Jugador se planta (STAND)
      */
     fun playerStand(playerId: String): ServerMessage.GameState {
-        val hand = getActiveHand(playerId) ?: throw IllegalStateException("Jugador no encontrado")
-        println("✋ Jugador se planta con ${hand.calculateValue()}")
+        val state = playerStates[playerId] ?: throw IllegalStateException("Jugador no encontrado")
+        val hand = state.hands[state.activeHandIndex]
         
-        // Si tiene split y está en mano principal, pasar a split
-        if (hasSplit[playerId] == true && activeSplitHand[playerId] == 0) {
-            activeSplitHand[playerId] = 1
-            return buildGameState(playerId, GamePhase.PLAYER_TURN, estimatePlayerChips(playerId))
-        }
+        println("✋ Mano ${state.activeHandIndex + 1} se planta con ${hand.calculateValue()}")
+        state.statuses[state.activeHandIndex] = HandStatus.STANDING
         
-        return playDealerTurn(playerId)
+        return handleHandComplete(playerId, estimatePlayerChips(playerId))
     }
 
     /**
-     * Procesa cuando el jugador dobla
+     * Jugador dobla (DOUBLE)
      */
     fun playerDouble(playerId: String): ServerMessage.GameState? {
-        val hand = getActiveHand(playerId) ?: return null
+        val state = playerStates[playerId] ?: return null
+        val hand = state.hands[state.activeHandIndex]
         
         // Solo se puede doblar con 2 cartas
         if (hand.getCards().size != 2) return null
         
-        // Dar una carta y plantarse
+        // Doblar la apuesta
+        state.bets[state.activeHandIndex] = state.bets[state.activeHandIndex] * 2
+        state.doubled[state.activeHandIndex] = true
+        
+        // Dar una carta
         val newCard = deck.dealCard(hidden = false)
         hand.addCard(newCard)
-        hasDoubled[playerId] = true
         
-        // Doblar la apuesta
-        val currentBet = playerBets[playerId] ?: 0
-        playerBets[playerId] = currentBet * 2
+        println("🎲 Mano ${state.activeHandIndex + 1} dobla: $newCard (Total: ${hand.calculateValue()})")
         
-        println("🎲 Jugador dobla: $newCard (Total: ${hand.calculateValue()})")
+        // Marcar como completada
+        state.statuses[state.activeHandIndex] = if (hand.isBusted()) HandStatus.BUSTED else HandStatus.STANDING
         
-        // Si tiene split, manejar
-        if (hasSplit[playerId] == true && activeSplitHand[playerId] == 0) {
-            activeSplitHand[playerId] = 1
-            return buildGameState(playerId, GamePhase.PLAYER_TURN, estimatePlayerChips(playerId))
-        }
-        
-        return playDealerTurn(playerId)
+        return handleHandComplete(playerId, estimatePlayerChips(playerId))
     }
 
     /**
-     * Procesa cuando el jugador divide
+     * Jugador divide (SPLIT) - Permite re-splits hasta gameSettings.maxSplits
      */
     fun playerSplit(playerId: String): ServerMessage.GameState? {
-        val hand = playerHands[playerId] ?: return null
+        val state = playerStates[playerId] ?: return null
+
+        // Permitir splits hasta gameSettings.maxSplits veces
+        if (state.numberOfHands >= gameSettings.maxSplits + 1) return null
+
+        val activeIdx = state.activeHandIndex
+        val hand = state.hands[activeIdx]
         val cards = hand.getCards()
-        
-        // Verificar que puede dividir
+
         if (cards.size != 2) return null
         if (cards[0].rank.value != cards[1].rank.value) return null
-        if (hasSplit[playerId] == true) return null // Ya dividió
-        
-        // Crear mano de split
-        val splitHand = Hand()
-        val secondCard = cards[1]
+
+        val bet = state.bets[activeIdx]
+
+        // Crear nueva mano con la segunda carta de la mano activa
+        val newHand = Hand()
+        newHand.addCard(cards[1])
+
+        // Quitar segunda carta de la mano activa y dar una nueva
         hand.removeLastCard()
-        splitHand.addCard(secondCard)
-        
-        // Dar una carta a cada mano
         hand.addCard(deck.dealCard(hidden = false))
-        splitHand.addCard(deck.dealCard(hidden = false))
-        
-        splitHands[playerId] = splitHand
-        hasSplit[playerId] = true
-        activeSplitHand[playerId] = 0
-        
-        println("✂️ Jugador divide: Mano 1: ${hand.getCards()}, Mano 2: ${splitHand.getCards()}")
-        
+        newHand.addCard(deck.dealCard(hidden = false))
+
+        // Insertar la nueva mano justo después de la activa
+        val insertIdx = activeIdx + 1
+        state.hands.add(insertIdx, newHand)
+        state.bets.add(insertIdx, bet)
+        state.statuses.add(insertIdx, HandStatus.WAITING)
+        state.doubled.add(insertIdx, false)
+        state.numberOfHands++
+
+        println("✂️ Split mano ${activeIdx + 1}: ${hand.calculateValue()} / ${newHand.calculateValue()} (total ${state.numberOfHands} manos)")
+
+        if (hand.calculateValue() == 21) {
+            state.statuses[activeIdx] = HandStatus.STANDING
+            return handleHandComplete(playerId, estimatePlayerChips(playerId))
+        }
+
         return buildGameState(playerId, GamePhase.PLAYER_TURN, estimatePlayerChips(playerId))
     }
 
     /**
-     * Procesa cuando el jugador se rinde
+     * Jugador se rinde (SURRENDER)
      */
-    fun playerSurrender(playerId: String): ServerMessage.GameResult? {
-        val hand = playerHands[playerId] ?: return null
+    fun playerSurrender(playerId: String): ServerMessage.GameState? {
+        val state = playerStates[playerId] ?: return null
         
-        // Solo se puede rendir con 2 cartas en mano principal
-        if (hand.getCards().size != 2) return null
-        if (hasSplit[playerId] == true) return null
-        
-        dealerHand.revealAll()
-        val bet = playerBets[playerId] ?: 0
+        // Solo se puede rendir en la primera mano con 2 cartas
+        if (state.activeHandIndex != 0) return null
+        if (state.hands[0].getCards().size != 2) return null
         
         println("🏳️ Jugador se rinde")
         
-        return ServerMessage.GameResult(
-            result = GameResultType.SURRENDER,
-            playerFinalScore = hand.calculateValue(),
-            dealerFinalScore = dealerHand.calculateValue(),
-            message = "Te has rendido. Recuperas la mitad de tu apuesta.",
-            dealerFinalHand = dealerHand.getCards(),
-            payout = -(bet / 2),
-            newChipsTotal = 0 // Se calcula en ClientHandler
-        )
-    }
-
-    /**
-     * El dealer juega su turno
-     */
-    private fun playDealerTurn(playerId: String): ServerMessage.GameState {
-        // Revelar la carta oculta del dealer
+        // Marcar como rendido - se resuelve después
+        state.statuses[0] = HandStatus.COMPLETED
+        
+        // Revelar cartas del dealer
         dealerHand.revealAll()
-        println("👁️ Dealer revela su mano: ${dealerHand.getCards()} = ${dealerHand.calculateValue()}")
-
-        // El dealer pide cartas según las reglas
-        while (shouldDealerHit()) {
-            val newCard = deck.dealCard(hidden = false)
-            dealerHand.addCard(newCard)
-            println("🎴 Dealer pide carta: $newCard (Total: ${dealerHand.calculateValue()})")
-        }
-
-        if (dealerHand.isBusted()) {
-            println("💥 ¡Dealer se pasó! (${dealerHand.calculateValue()})")
-        } else {
-            println("✋ Dealer se planta con ${dealerHand.calculateValue()}")
-        }
-
-        return buildGameState(playerId, GamePhase.GAME_OVER, estimatePlayerChips(playerId))
+        
+        return buildSurrenderResult(playerId, estimatePlayerChips(playerId))
     }
 
     /**
-     * Determina si el dealer debe pedir carta
+     * Maneja cuando una mano se completa (bust, stand, 21, double)
      */
-    private fun shouldDealerHit(): Boolean {
-        val value = dealerHand.calculateValue()
-        if (value < 17) return true
-        if (value == 17 && gameSettings.dealerHitsOnSoft17 && dealerHand.isSoft()) return true
-        return false
-    }
-
-    /**
-     * Obtiene el resultado final del juego
-     */
-    fun getGameResult(playerId: String, bet: Int, previousChips: Int): ServerMessage.GameResult {
-        val playerHand = playerHands[playerId] ?: throw IllegalStateException("Jugador no encontrado")
-        val splitHand = splitHands[playerId]
-
-        val result = BlackjackGame.determineWinner(playerHand, dealerHand)
-        val playerScore = playerHand.calculateValue()
-        val dealerScore = dealerHand.calculateValue()
+    private fun handleHandComplete(playerId: String, chips: Int): ServerMessage.GameState {
+        val state = playerStates[playerId] ?: throw IllegalStateException("Jugador no encontrado")
         
-        // Calcular pago
-        val actualBet = if (hasDoubled[playerId] == true) bet * 2 else bet
-        val payout = calculatePayout(result, actualBet, playerHand)
-        
-        // Calcular resultado del split si existe
-        var splitResult: GameResultType? = null
-        var splitPayout: Int? = null
-        if (splitHand != null) {
-            splitResult = BlackjackGame.determineWinner(splitHand, dealerHand)
-            splitPayout = calculatePayout(splitResult, bet, splitHand)
-        }
-        
-        val totalPayout = payout + (splitPayout ?: 0)
-        val newChips = previousChips + actualBet + totalPayout + (if (splitHand != null) bet else 0)
-        
-        val message = BlackjackGame.getResultMessage(result, playerScore, dealerScore)
-
-        println("🏆 Resultado: $result | Pago: $payout | Nuevas fichas: $newChips")
-
-        return ServerMessage.GameResult(
-            result = result,
-            playerFinalScore = playerScore,
-            dealerFinalScore = dealerScore,
-            message = message,
-            dealerFinalHand = dealerHand.getCards(),
-            payout = totalPayout,
-            newChipsTotal = newChips,
-            splitResult = splitResult,
-            splitPayout = splitPayout
-        )
-    }
-
-    /**
-     * Calcula el pago basado en el resultado
-     */
-    private fun calculatePayout(result: GameResultType, bet: Int, hand: Hand): Int {
-        return when (result) {
-            GameResultType.BLACKJACK -> {
-                // Blackjack natural paga 3:2 (o según configuración)
-                (bet * gameSettings.blackjackPayout).toInt()
+        // Intentar avanzar a la siguiente mano
+        if (advanceToNextHand(playerId)) {
+            println("➡️ Avanzando a mano ${state.activeHandIndex + 1}")
+            
+            // Verificar si la nueva mano tiene blackjack/21
+            val nextHand = state.hands[state.activeHandIndex]
+            if (nextHand.calculateValue() == 21) {
+                state.statuses[state.activeHandIndex] = HandStatus.STANDING
+                return handleHandComplete(playerId, chips)
             }
-            GameResultType.WIN -> bet // Gana 1:1
-            GameResultType.PUSH -> 0 // Empate, recupera apuesta
-            GameResultType.LOSE -> -bet // Pierde la apuesta
-            GameResultType.SURRENDER -> -(bet / 2) // Pierde mitad
-        }
-    }
-
-    /**
-     * Construye el estado actual del juego (con soporte para múltiples manos)
-     */
-    private fun buildGameState(playerId: String, phase: GamePhase, playerChips: Int): ServerMessage.GameState {
-        val playerHand = playerHands[playerId] ?: throw IllegalStateException("Jugador no encontrado")
-        val splitHand = splitHands[playerId]
-        val currentBet = playerBets[playerId] ?: 0
-        val activeHand = getActiveHand(playerId) ?: playerHand
-        val numHands = numberOfHandsPerPlayer[playerId] ?: 1
-
-        val playerScore = activeHand.calculateValue()
-        val dealerScore = if (phase == GamePhase.GAME_OVER) {
-            dealerHand.calculateValue()
+            
+            return buildGameState(playerId, GamePhase.PLAYER_TURN, chips)
         } else {
-            // Solo mostrar la carta visible del dealer
-            dealerHand.getCards().firstOrNull { !it.hidden }?.rank?.value ?: 0
-        }
-
-        // Calcular probabilidad de pasarse
-        val bustProbability = if (phase == GamePhase.PLAYER_TURN) {
-            calculateBustProbability(activeHand.calculateValue())
-        } else 0.0
-
-        // Determinar acciones disponibles
-        val canDouble = phase == GamePhase.PLAYER_TURN && 
-                       activeHand.getCards().size == 2 && 
-                       !activeHand.isBusted() &&
-                       (gameSettings.allowDoubleAfterSplit || hasSplit[playerId] != true)
-        
-        val canSplit = phase == GamePhase.PLAYER_TURN &&
-                      playerHand.getCards().size == 2 &&
-                      playerHand.getCards()[0].rank.value == playerHand.getCards()[1].rank.value &&
-                      hasSplit[playerId] != true
-
-        val canSurrender = phase == GamePhase.PLAYER_TURN &&
-                          playerHand.getCards().size == 2 &&
-                          hasSplit[playerId] != true &&
-                          gameSettings.allowSurrender
-        
-        // Construir estados de múltiples manos
-        val multiHandStates = if (numHands > 1) buildMultiHandStates(playerId) else emptyList()
-        val totalBetAmount = if (numHands > 1) currentBet * numHands else currentBet
-
-        return ServerMessage.GameState(
-            playerHand = playerHand.getCards(),
-            dealerHand = dealerHand.getCards(),
-            playerScore = playerScore,
-            dealerScore = dealerScore,
-            gameState = phase,
-            canRequestCard = phase == GamePhase.PLAYER_TURN && !activeHand.isBusted(),
-            canStand = phase == GamePhase.PLAYER_TURN && !activeHand.isBusted(),
-            canDouble = canDouble,
-            canSplit = canSplit,
-            canSurrender = canSurrender,
-            currentBet = currentBet,
-            playerChips = playerChips,
-            splitHand = splitHand?.getCards(),
-            splitScore = splitHand?.calculateValue(),
-            activeSplitHand = activeSplitHand[playerId] ?: 0,
-            bustProbability = bustProbability,
-            multipleHands = multiHandStates,
-            activeHandIndex = activeHandIndex[playerId] ?: 0,
-            numberOfHands = numHands,
-            totalBet = totalBetAmount
-        )
-    }
-
-    /**
-     * Obtiene la mano activa (principal o split)
-     */
-    private fun getActiveHand(playerId: String): Hand? {
-        return if (activeSplitHand[playerId] == 1) {
-            splitHands[playerId]
-        } else {
-            playerHands[playerId]
+            // Todas las manos completas - turno del dealer
+            println("✅ Todas las manos completas - Turno del dealer")
+            return playDealerTurn(playerId, chips)
         }
     }
 
     /**
-     * Estima las fichas del jugador
-     */
-    private fun estimatePlayerChips(playerId: String): Int {
-        // Esto es una estimación, el valor real se maneja en ClientHandler
-        return GameConfig.INITIAL_CHIPS
-    }
-
-    /**
-     * Calcula la probabilidad de pasarse
-     */
-    private fun calculateBustProbability(currentValue: Int): Double {
-        if (currentValue >= 21) return 1.0
-        if (currentValue <= 11) return 0.0
-        
-        val bustingCards = when {
-            currentValue == 12 -> 4 * 4 // Solo 10, J, Q, K nos pasan
-            currentValue == 13 -> 4 * 5 // 9, 10, J, Q, K
-            currentValue == 14 -> 4 * 6
-            currentValue == 15 -> 4 * 7
-            currentValue == 16 -> 4 * 8
-            currentValue == 17 -> 4 * 9
-            currentValue == 18 -> 4 * 10
-            currentValue == 19 -> 4 * 10
-            currentValue == 20 -> 4 * 10
-            else -> 0
-        }
-        return bustingCards.toDouble() / 52.0
-    }
-
-    /**
-     * Reinicia la baraja si es necesario
-     */
-    fun checkAndResetDeck() {
-        if (deck.needsReset()) {
-            println("🔄 Baraja baja en cartas, reiniciando...")
-            deck.reset()
-            deck.shuffle()
-        }
-    }
-    
-    /**
-     * Selecciona una mano específica para jugar (modo multi-mano)
-     */
-    fun selectHand(playerId: String, handIndex: Int): Boolean {
-        val hands = multipleHands[playerId] ?: return false
-        val statuses = multipleHandsStatus[playerId] ?: return false
-        
-        if (handIndex < 0 || handIndex >= hands.size) return false
-        if (statuses[handIndex] != HandStatus.WAITING) return false
-        
-        // Marcar la mano actual como completada si estaba jugando
-        val currentIndex = activeHandIndex[playerId] ?: 0
-        if (statuses[currentIndex] == HandStatus.PLAYING) {
-            statuses[currentIndex] = HandStatus.STANDING
-        }
-        
-        // Activar la nueva mano
-        activeHandIndex[playerId] = handIndex
-        statuses[handIndex] = HandStatus.PLAYING
-        playerHands[playerId] = hands[handIndex]
-        
-        return true
-    }
-    
-    /**
-     * Obtiene el estado actual del juego
-     */
-    fun getCurrentState(playerId: String, playerChips: Int): ServerMessage.GameState {
-        return buildGameState(playerId, GamePhase.PLAYER_TURN, playerChips)
-    }
-    
-    /**
-     * Obtiene la mano del jugador (para historial)
-     */
-    fun getPlayerHand(playerId: String): List<Card> {
-        return playerHands[playerId]?.getCards() ?: emptyList()
-    }
-    
-    /**
-     * Avanza a la siguiente mano en modo multi-mano
-     * @return true si hay más manos por jugar, false si se completaron todas
+     * Avanza a la siguiente mano disponible
+     * @return true si hay más manos por jugar, false si todas están completas
      */
     private fun advanceToNextHand(playerId: String): Boolean {
-        val hands = multipleHands[playerId] ?: return false
-        val statuses = multipleHandsStatus[playerId] ?: return false
-        val currentIndex = activeHandIndex[playerId] ?: 0
+        val state = playerStates[playerId] ?: return false
         
-        // Marcar la mano actual como completada
-        if (statuses[currentIndex] == HandStatus.PLAYING) {
-            statuses[currentIndex] = HandStatus.STANDING
-        }
-        
-        // Buscar la siguiente mano pendiente
-        for (i in (currentIndex + 1) until hands.size) {
-            if (statuses[i] == HandStatus.WAITING) {
-                activeHandIndex[playerId] = i
-                statuses[i] = HandStatus.PLAYING
-                playerHands[playerId] = hands[i]
+        // Buscar siguiente mano en estado WAITING
+        for (i in (state.activeHandIndex + 1) until state.hands.size) {
+            if (state.statuses[i] == HandStatus.WAITING) {
+                state.activeHandIndex = i
+                state.statuses[i] = HandStatus.PLAYING
                 return true
             }
         }
         
         return false
     }
-    
+
     /**
-     * Verifica si todas las manos están completadas
+     * Turno del dealer
      */
-    private fun allHandsCompleted(playerId: String): Boolean {
-        val statuses = multipleHandsStatus[playerId] ?: return true
-        return statuses.all { it != HandStatus.WAITING && it != HandStatus.PLAYING }
-    }
-    
-    /**
-     * Construye los estados de múltiples manos para el mensaje
-     */
-    private fun buildMultiHandStates(playerId: String): List<MultiHandState> {
-        val hands = multipleHands[playerId] ?: return emptyList()
-        val bets = multipleHandsBets[playerId] ?: return emptyList()
-        val statuses = multipleHandsStatus[playerId] ?: return emptyList()
-        val currentActive = activeHandIndex[playerId] ?: 0
+    private fun playDealerTurn(playerId: String, chips: Int): ServerMessage.GameState {
+        val state = playerStates[playerId] ?: throw IllegalStateException("Jugador no encontrado")
         
-        return hands.mapIndexed { index, hand ->
-            val isActive = index == currentActive && statuses[index] == HandStatus.PLAYING
+        // Revelar carta oculta
+        dealerHand.revealAll()
+        
+        // Verificar si hay al menos una mano que no se pasó
+        val hasActiveHand = state.statuses.any { it == HandStatus.STANDING || it == HandStatus.BLACKJACK }
+        
+        if (hasActiveHand) {
+            // El dealer juega
+            println("🎰 Dealer revela: ${dealerHand.getCards()} = ${dealerHand.calculateValue()}")
+            
+            while (shouldDealerHit()) {
+                val card = deck.dealCard(hidden = false)
+                dealerHand.addCard(card)
+                println("🎰 Dealer pide: $card (Total: ${dealerHand.calculateValue()})")
+            }
+            
+            if (dealerHand.isBusted()) {
+                println("💥 Dealer se pasó con ${dealerHand.calculateValue()}")
+            } else {
+                println("✋ Dealer se planta con ${dealerHand.calculateValue()}")
+            }
+        } else {
+            println("🎰 Dealer no juega (todas las manos se pasaron)")
+        }
+        
+        return buildGameState(playerId, GamePhase.GAME_OVER, chips)
+    }
+
+    /**
+     * Determina si el dealer debe pedir
+     */
+    private fun shouldDealerHit(): Boolean {
+        val value = dealerHand.calculateValue()
+        return if (gameSettings.dealerHitsOnSoft17) {
+            // Dealer pide con soft 17
+            value < 17 || (value == 17 && dealerHand.isSoft())
+        } else {
+            // Dealer se planta con cualquier 17
+            value < 17
+        }
+    }
+
+    /**
+     * Obtiene el resultado del juego (para todas las manos)
+     */
+    fun getGameResult(playerId: String, baseBet: Int, playerChips: Int): ServerMessage.GameResult {
+        val state = playerStates[playerId] ?: throw IllegalStateException("Jugador no encontrado")
+        
+        val dealerValue = dealerHand.calculateValue()
+        val dealerBusted = dealerHand.isBusted()
+        val dealerBlackjack = dealerHand.isBlackjack()
+        
+        var totalPayout = 0
+        val handResults = mutableListOf<SingleHandResult>()
+        
+        for (i in 0 until state.hands.size) {
+            val hand = state.hands[i]
+            val bet = state.bets[i]
+            val status = state.statuses[i]
+            val handValue = hand.calculateValue()
+            
+            val (result, payout) = when {
+                status == HandStatus.BUSTED -> {
+                    GameResultType.LOSE to -bet
+                }
+                hand.isBlackjack() && hand.getCards().size == 2 -> {
+                    if (dealerBlackjack) {
+                        GameResultType.PUSH to 0
+                    } else {
+                        GameResultType.BLACKJACK to (bet * gameSettings.blackjackPayout).toInt()
+                    }
+                }
+                dealerBusted -> {
+                    GameResultType.WIN to bet
+                }
+                dealerBlackjack -> {
+                    GameResultType.LOSE to -bet
+                }
+                handValue > dealerValue -> {
+                    GameResultType.WIN to bet
+                }
+                handValue < dealerValue -> {
+                    GameResultType.LOSE to -bet
+                }
+                else -> {
+                    GameResultType.PUSH to 0
+                }
+            }
+            
+            totalPayout += payout
+            handResults.add(SingleHandResult(
+                handIndex = i,
+                cards = hand.getCards(),
+                score = handValue,
+                bet = bet,
+                result = result,
+                payout = payout
+            ))
+            
+            println("   Mano ${i + 1}: $handValue vs Dealer $dealerValue → $result (${if (payout >= 0) "+$payout" else "$payout"})")
+        }
+        
+        val newTotal = playerChips + totalPayout
+        
+        // Determinar resultado principal (para compatibilidad)
+        val mainResult = when {
+            handResults.all { it.result == GameResultType.LOSE || it.result == GameResultType.PUSH } -> {
+                if (handResults.any { it.result == GameResultType.PUSH }) GameResultType.PUSH else GameResultType.LOSE
+            }
+            handResults.any { it.result == GameResultType.BLACKJACK } -> GameResultType.BLACKJACK
+            handResults.any { it.result == GameResultType.WIN } -> GameResultType.WIN
+            else -> GameResultType.PUSH
+        }
+        
+        val message = if (state.numberOfHands > 1) {
+            val wins = handResults.count { it.result == GameResultType.WIN || it.result == GameResultType.BLACKJACK }
+            val losses = handResults.count { it.result == GameResultType.LOSE }
+            "Ganaste $wins mano(s), perdiste $losses | Pago total: ${if (totalPayout >= 0) "+$totalPayout" else "$totalPayout"}"
+        } else {
+            buildResultMessage(mainResult, handResults[0].score, dealerValue)
+        }
+        
+        println("💰 Resultado total: $totalPayout | Nuevo balance: $newTotal")
+        
+        return ServerMessage.GameResult(
+            result = mainResult,
+            playerFinalScore = handResults[0].score,
+            dealerFinalScore = dealerValue,
+            dealerFinalHand = dealerHand.getCards(),
+            payout = totalPayout,
+            newChipsTotal = newTotal,
+            message = message,
+            handResults = handResults
+        )
+    }
+
+    /**
+     * Construye resultado de rendición
+     */
+    private fun buildSurrenderResult(playerId: String, chips: Int): ServerMessage.GameState {
+        val state = playerStates[playerId] ?: throw IllegalStateException("Jugador no encontrado")
+        
+        // Marcar todas las manos como completadas
+        for (i in 0 until state.statuses.size) {
+            state.statuses[i] = HandStatus.COMPLETED
+        }
+        
+        return buildGameState(playerId, GamePhase.GAME_OVER, chips)
+    }
+
+    /**
+     * Obtiene resultado de rendición
+     */
+    fun getSurrenderResult(playerId: String, bet: Int, playerChips: Int): ServerMessage.GameResult {
+        val state = playerStates[playerId] ?: throw IllegalStateException("Jugador no encontrado")
+        val hand = state.hands[0]
+        
+        val payout = -(bet / 2)
+        val newTotal = playerChips + payout
+        
+        return ServerMessage.GameResult(
+            result = GameResultType.SURRENDER,
+            playerFinalScore = hand.calculateValue(),
+            dealerFinalScore = dealerHand.calculateValue(),
+            dealerFinalHand = dealerHand.getCards(),
+            payout = payout,
+            newChipsTotal = newTotal,
+            message = "Te has rendido. Recuperas ${bet / 2} fichas.",
+            handResults = listOf(
+                SingleHandResult(0, hand.getCards(), hand.calculateValue(), bet, GameResultType.SURRENDER, payout)
+            )
+        )
+    }
+
+    /**
+     * Construye el mensaje de resultado
+     */
+    private fun buildResultMessage(result: GameResultType, playerValue: Int, dealerValue: Int): String {
+        return when (result) {
+            GameResultType.BLACKJACK -> "¡BLACKJACK! Has ganado con 21 natural"
+            GameResultType.WIN -> {
+                if (dealerValue > 21) {
+                    "¡Ganaste! El dealer se pasó ($dealerValue)"
+                } else {
+                    "¡Ganaste! $playerValue vs $dealerValue"
+                }
+            }
+            GameResultType.LOSE -> {
+                if (playerValue > 21) {
+                    "Perdiste. Te pasaste ($playerValue)"
+                } else {
+                    "Perdiste. $playerValue vs $dealerValue"
+                }
+            }
+            GameResultType.PUSH -> "Empate. Ambos tienen $playerValue"
+            GameResultType.SURRENDER -> "Te has rendido."
+        }
+    }
+
+    /**
+     * Construye el estado del juego
+     */
+    private fun buildGameState(playerId: String, phase: GamePhase, playerChips: Int): ServerMessage.GameState {
+        val state = playerStates[playerId] ?: throw IllegalStateException("Jugador no encontrado")
+        
+        val activeHand = state.hands[state.activeHandIndex]
+        val activeScore = activeHand.calculateValue()
+        
+        val dealerScore = if (phase == GamePhase.GAME_OVER) {
+            dealerHand.calculateValue()
+        } else {
+            // Solo mostrar carta visible
+            dealerHand.getVisibleCards().firstOrNull()?.rank?.value ?: 0
+        }
+        
+        // Calcular probabilidad de pasarse
+        val bustProbability = if (phase == GamePhase.PLAYER_TURN && activeScore < 21) {
+            calculateBustProbability(activeScore)
+        } else 0.0
+        
+        // Acciones disponibles
+        val canHit = phase == GamePhase.PLAYER_TURN && !activeHand.isBusted() && activeScore < 21
+        val canStand = phase == GamePhase.PLAYER_TURN && !activeHand.isBusted()
+        val isOnSplitHand = state.numberOfHands > 1
+        val canDouble = phase == GamePhase.PLAYER_TURN &&
+                       activeHand.getCards().size == 2 &&
+                       !activeHand.isBusted() &&
+                       state.bets[state.activeHandIndex] <= playerChips &&
+                       (!isOnSplitHand || gameSettings.allowDoubleAfterSplit)
+        val canSplit = phase == GamePhase.PLAYER_TURN &&
+                      state.numberOfHands < gameSettings.maxSplits + 1 &&
+                      activeHand.getCards().size == 2 &&
+                      activeHand.getCards()[0].rank.value == activeHand.getCards()[1].rank.value &&
+                      state.bets[state.activeHandIndex] <= playerChips
+        val canSurrender = phase == GamePhase.PLAYER_TURN &&
+                          state.activeHandIndex == 0 &&
+                          activeHand.getCards().size == 2 &&
+                          gameSettings.allowSurrender
+        
+        // Construir estado de múltiples manos
+        val multiHandStates = state.hands.mapIndexed { index, hand ->
             MultiHandState(
                 handIndex = index,
                 cards = hand.getCards(),
                 score = hand.calculateValue(),
-                bet = bets[index],
-                status = statuses[index],
-                canHit = isActive && !hand.isBusted() && hand.calculateValue() < 21,
-                canStand = isActive && !hand.isBusted(),
-                canDouble = isActive && hand.getCards().size == 2 && !hand.isBusted(),
-                canSplit = isActive && hand.getCards().size == 2 && 
-                          hand.getCards()[0].rank.value == hand.getCards()[1].rank.value
+                bet = state.bets[index],
+                status = state.statuses[index],
+                canHit = index == state.activeHandIndex && canHit,
+                canStand = index == state.activeHandIndex && canStand,
+                canDouble = index == state.activeHandIndex && canDouble,
+                canSplit = index == state.activeHandIndex && canSplit
             )
         }
+        
+        return ServerMessage.GameState(
+            playerHand = activeHand.getCards(),
+            dealerHand = dealerHand.getCards(),
+            playerScore = activeScore,
+            dealerScore = dealerScore,
+            gameState = phase,
+            canRequestCard = canHit,
+            canStand = canStand,
+            canDouble = canDouble,
+            canSplit = canSplit,
+            canSurrender = canSurrender,
+            currentBet = state.bets[state.activeHandIndex],
+            playerChips = playerChips,
+            splitHand = null,
+            splitScore = null,
+            activeSplitHand = 0,
+            bustProbability = bustProbability,
+            multipleHands = multiHandStates,
+            activeHandIndex = state.activeHandIndex,
+            numberOfHands = state.numberOfHands,
+            totalBet = state.bets.sum()
+        )
+    }
+
+    /**
+     * Calcula probabilidad de pasarse
+     */
+    private fun calculateBustProbability(currentValue: Int): Double {
+        if (currentValue >= 21) return 1.0
+        if (currentValue <= 11) return 0.0
+        
+        val safeCards = 21 - currentValue
+        val bustingCards = 10 - safeCards
+        return (bustingCards * 4.0) / 52.0
+    }
+
+    /**
+     * Verifica y reinicia el mazo si es necesario
+     */
+    fun checkAndResetDeck() {
+        if (deck.needsReset()) {
+            println("🔄 Mazo bajo en cartas, reiniciando...")
+            deck.reset()
+            deck.shuffle()
+        }
+    }
+
+    /**
+     * Obtiene la mano del jugador (para historial)
+     */
+    fun getPlayerHand(playerId: String): List<Card> {
+        val state = playerStates[playerId] ?: return emptyList()
+        return state.hands.getOrNull(0)?.getCards() ?: emptyList()
+    }
+
+    /**
+     * Estima las fichas del jugador
+     */
+    private fun estimatePlayerChips(playerId: String): Int {
+        return GameConfig.INITIAL_CHIPS
+    }
+
+    /**
+     * Obtiene el estado actual (para uso interno)
+     */
+    fun getCurrentState(playerId: String, playerChips: Int): ServerMessage.GameState {
+        return buildGameState(playerId, GamePhase.PLAYER_TURN, playerChips)
+    }
+
+    /**
+     * Selecciona una mano específica (para navegación manual entre manos)
+     * Nota: El avance entre manos es automático, pero esto permite selección manual si se necesita
+     */
+    fun selectHand(playerId: String, handIndex: Int): Boolean {
+        val state = playerStates[playerId] ?: return false
+        
+        // Solo se puede seleccionar una mano que esté en espera o jugando
+        if (handIndex < 0 || handIndex >= state.hands.size) return false
+        
+        val status = state.statuses[handIndex]
+        if (status != HandStatus.WAITING && status != HandStatus.PLAYING) return false
+        
+        state.activeHandIndex = handIndex
+        if (status == HandStatus.WAITING) {
+            state.statuses[handIndex] = HandStatus.PLAYING
+        }
+        
+        return true
     }
 }
