@@ -38,6 +38,7 @@ kotlin {
 
 
 compose.desktop {
+
     application {
         mainClass = "org.example.project.MainKt"
 
