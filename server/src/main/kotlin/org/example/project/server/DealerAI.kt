@@ -28,7 +28,8 @@ class DealerAI(
         val statuses: MutableList<HandStatus> = mutableListOf(),
         val doubled: MutableList<Boolean> = mutableListOf(),
         var activeHandIndex: Int = 0,
-        var numberOfHands: Int = 1
+        var numberOfHands: Int = 1,
+        var currentChips: Int = GameConfig.INITIAL_CHIPS
     )
     
     private val playerStates = mutableMapOf<String, PlayerGameState>()
@@ -43,7 +44,8 @@ class DealerAI(
         
         // Crear nuevo estado del jugador
         val state = PlayerGameState(
-            numberOfHands = numberOfHands.coerceIn(1, 4)
+            numberOfHands = numberOfHands.coerceIn(1, 4),
+            currentChips = playerChips
         )
         
         // Inicializar cada mano
@@ -593,10 +595,10 @@ class DealerAI(
     }
 
     /**
-     * Estima las fichas del jugador
+     * Devuelve las fichas restantes del jugador (tras deducir la apuesta inicial)
      */
     private fun estimatePlayerChips(playerId: String): Int {
-        return GameConfig.INITIAL_CHIPS
+        return playerStates[playerId]?.currentChips ?: GameConfig.INITIAL_CHIPS
     }
 
     /**

@@ -208,7 +208,7 @@ class ClientHandler(
         
         // Modo PVE - lógica existente
         val betAmount = message.amount
-        val numHands = message.numberOfHands.coerceIn(1, 3)
+        val numHands = message.numberOfHands.coerceIn(1, 4)
         val totalBetRequired = betAmount * numHands
         
         // Validar apuesta
@@ -394,27 +394,57 @@ class ClientHandler(
             return
         }
 
-        val result = dealerAI.playerSurrender(playerId)
-        if (result == null) {
+        val gameStateResult = dealerAI.playerSurrender(playerId)
+        if (gameStateResult == null) {
             sendError("No puedes rendirte en este momento")
             return
         }
-        
-        // Devolver mitad de la apuesta
-        val refund = currentBet / 2
-        playerChips += refund
+
+        sendMessage(gameStateResult)
+
+        // Obtener y enviar resultado con pago correcto
+        val surrenderResult = dealerAI.getSurrenderResult(playerId, currentBet, playerChips)
+        playerChips = surrenderResult.newChipsTotal
         isInGame = false
-        
-        println("🏳️ $playerName se rinde. Recupera $refund fichas")
-        sendMessage(result)
-        
-        // Solicitar nueva apuesta si tiene fichas
+
+        println("🏳️ $playerName se rinde. Fichas: $playerChips")
+        sendMessage(surrenderResult)
+
+        // Guardar en historial
+        val historyEntry = HandHistory(
+            playerHand = dealerAI.getPlayerHand(playerId),
+            dealerHand = surrenderResult.dealerFinalHand,
+            result = surrenderResult.result,
+            bet = totalBet,
+            payout = surrenderResult.payout,
+            timestamp = System.currentTimeMillis(),
+            playerScore = surrenderResult.playerFinalScore,
+            dealerScore = surrenderResult.dealerFinalScore
+        )
+        handHistory.add(0, historyEntry)
+        if (handHistory.size > 10) handHistory.removeAt(handHistory.size - 1)
+
+        recordsManager.recordGameResult(
+            playerName = playerName,
+            result = surrenderResult.result,
+            bet = totalBet,
+            payout = surrenderResult.payout,
+            finalChips = playerChips
+        )
+
+        currentBet = 0
+        numberOfHands = 1
+        totalBet = 0
+
         if (playerChips >= gameSettings.minBet) {
+            delay(1000)
             sendMessage(ServerMessage.RequestBet(
                 minBet = gameSettings.minBet,
                 maxBet = minOf(gameSettings.maxBet, playerChips),
                 currentChips = playerChips
             ))
+        } else {
+            sendMessage(ServerMessage.Error("¡Te has quedado sin fichas! Inicia una nueva sesión para continuar."))
         }
     }
 
@@ -422,7 +452,7 @@ class ClientHandler(
      * Finaliza el juego y envía el resultado
      */
     private suspend fun finishGame() {
-        val result = dealerAI.getGameResult(playerId, currentBet, playerChips - totalBet)
+        val result = dealerAI.getGameResult(playerId, currentBet, playerChips)
         
         // Actualizar fichas
         playerChips = result.newChipsTotal
