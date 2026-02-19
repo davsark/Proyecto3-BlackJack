@@ -119,6 +119,11 @@ class Hand {
     fun isEmpty(): Boolean = cards.isEmpty()
 
     /**
+     * Obtiene solo las cartas visibles (no ocultas)
+     */
+    fun getVisibleCards(): List<Card> = cards.filter { !it.hidden }
+
+    /**
      * Descripción de la mano para records
      */
     fun getDescription(): String {

@@ -31,6 +31,13 @@ fun App() {
         // Estados principales
         val uiState by viewModel.uiState.collectAsState()
         val numberOfDecks by viewModel.numberOfDecks.collectAsState()
+
+        // Configuración de reglas
+        val blackjackPayout by viewModel.blackjackPayout.collectAsState()
+        val dealerHitsOnSoft17 by viewModel.dealerHitsOnSoft17.collectAsState()
+        val allowDoubleAfterSplit by viewModel.allowDoubleAfterSplit.collectAsState()
+        val allowSurrender by viewModel.allowSurrender.collectAsState()
+        val maxSplits by viewModel.maxSplits.collectAsState()
         
         // Estados de la mesa
         val tablePhase by viewModel.tablePhase.collectAsState()
@@ -70,6 +77,16 @@ fun App() {
                 ConfigScreen(
                     currentDecks = numberOfDecks,
                     onDecksChange = { viewModel.setNumberOfDecks(it) },
+                    currentBlackjackPayout = blackjackPayout,
+                    onBlackjackPayoutChange = { viewModel.setBlackjackPayout(it) },
+                    currentDealerHitsOnSoft17 = dealerHitsOnSoft17,
+                    onDealerHitsOnSoft17Change = { viewModel.setDealerHitsOnSoft17(it) },
+                    currentAllowDoubleAfterSplit = allowDoubleAfterSplit,
+                    onAllowDoubleAfterSplitChange = { viewModel.setAllowDoubleAfterSplit(it) },
+                    currentAllowSurrender = allowSurrender,
+                    onAllowSurrenderChange = { viewModel.setAllowSurrender(it) },
+                    currentMaxSplits = maxSplits,
+                    onMaxSplitsChange = { viewModel.setMaxSplits(it) },
                     onBack = { viewModel.backToMenu() }
                 )
             }
@@ -97,7 +114,7 @@ fun App() {
             }
 
             // ═══════════════════════════════════════════════════════════════
-            // MESA DE JUEGO - Pantalla principal unificada
+            // MESA DE JUEGO PVE - Pantalla principal unificada
             // ═══════════════════════════════════════════════════════════════
             is GameUiState.AtTable -> {
                 TableScreen(
@@ -128,6 +145,39 @@ fun App() {
                     onShowHistory = { viewModel.requestHistory() },
                     onLeaveTable = { viewModel.leaveTable() }
                 )
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // MESA PVP - Múltiples jugadores en la misma mesa
+            // ═══════════════════════════════════════════════════════════════
+            is GameUiState.AtPvPTable -> {
+                val pvpTableState by viewModel.pvpTableState.collectAsState()
+                
+                pvpTableState?.let { tableState ->
+                    PvPTableScreen(
+                        tableState = tableState,
+                        playerChips = playerChips,
+                        currentBet = currentBet,
+                        minBet = minBet,
+                        maxBet = maxBet,
+                        gameResult = gameResult,
+                        
+                        // Acciones
+                        onPlaceBet = { amount -> viewModel.placeBet(amount, 1) },
+                        onHit = { viewModel.hit() },
+                        onStand = { viewModel.stand() },
+                        onDouble = { viewModel.double() },
+                        onSurrender = { viewModel.surrender() },
+                        onContinuePlaying = { viewModel.continuePlaying() },
+                        onShowRecords = { viewModel.requestRecords() },
+                        onLeaveTable = { viewModel.leaveTable() }
+                    )
+                } ?: run {
+                    // Esperando estado de mesa
+                    ConnectionScreen(
+                        onConnect = { _, _ -> }
+                    )
+                }
             }
 
             // ═══════════════════════════════════════════════════════════════

@@ -77,12 +77,37 @@ class GameViewModel : ViewModel() {
     private val _handHistory = MutableStateFlow<List<HandHistory>>(emptyList())
     val handHistory: StateFlow<List<HandHistory>> = _handHistory.asStateFlow()
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // ESTADO PVP (mesa compartida)
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    private val _pvpTableState = MutableStateFlow<ServerMessage.PvPTableState?>(null)
+    val pvpTableState: StateFlow<ServerMessage.PvPTableState?> = _pvpTableState.asStateFlow()
+    
+    private val _isPvPMode = MutableStateFlow(false)
+    val isPvPMode: StateFlow<Boolean> = _isPvPMode.asStateFlow()
+
     // ID del jugador
     private val _playerId = MutableStateFlow<String?>(null)
     
     // Configuración
     private val _numberOfDecks = MutableStateFlow(1)
     val numberOfDecks: StateFlow<Int> = _numberOfDecks.asStateFlow()
+
+    private val _blackjackPayout = MutableStateFlow(1.5)
+    val blackjackPayout: StateFlow<Double> = _blackjackPayout.asStateFlow()
+
+    private val _dealerHitsOnSoft17 = MutableStateFlow(false)
+    val dealerHitsOnSoft17: StateFlow<Boolean> = _dealerHitsOnSoft17.asStateFlow()
+
+    private val _allowDoubleAfterSplit = MutableStateFlow(true)
+    val allowDoubleAfterSplit: StateFlow<Boolean> = _allowDoubleAfterSplit.asStateFlow()
+
+    private val _allowSurrender = MutableStateFlow(true)
+    val allowSurrender: StateFlow<Boolean> = _allowSurrender.asStateFlow()
+
+    private val _maxSplits = MutableStateFlow(3)
+    val maxSplits: StateFlow<Int> = _maxSplits.asStateFlow()
 
     // Modo de juego y nombre
     private var selectedGameMode: GameMode = GameMode.PVE
@@ -154,7 +179,7 @@ class GameViewModel : ViewModel() {
         this.selectedGameMode = gameMode
         
         viewModelScope.launch {
-            val message = ClientMessage.JoinGame(playerName, gameMode)
+            val message = ClientMessage.JoinGame(playerName, gameMode, settings = buildGameSettings())
             gameClient.sendMessage(message)
             // Esperamos confirmación del servidor
         }
@@ -292,9 +317,21 @@ class GameViewModel : ViewModel() {
         _uiState.value = GameUiState.ShowingConfig
     }
 
-    fun setNumberOfDecks(decks: Int) {
-        _numberOfDecks.value = decks
-    }
+    fun setNumberOfDecks(decks: Int) { _numberOfDecks.value = decks }
+    fun setBlackjackPayout(payout: Double) { _blackjackPayout.value = payout }
+    fun setDealerHitsOnSoft17(value: Boolean) { _dealerHitsOnSoft17.value = value }
+    fun setAllowDoubleAfterSplit(value: Boolean) { _allowDoubleAfterSplit.value = value }
+    fun setAllowSurrender(value: Boolean) { _allowSurrender.value = value }
+    fun setMaxSplits(value: Int) { _maxSplits.value = value }
+
+    private fun buildGameSettings() = GameSettings(
+        numberOfDecks = _numberOfDecks.value,
+        blackjackPayout = _blackjackPayout.value,
+        dealerHitsOnSoft17 = _dealerHitsOnSoft17.value,
+        allowDoubleAfterSplit = _allowDoubleAfterSplit.value,
+        allowSurrender = _allowSurrender.value,
+        maxSplits = _maxSplits.value
+    )
 
     fun backToGame() {
         _uiState.value = GameUiState.AtTable
@@ -397,6 +434,36 @@ class GameViewModel : ViewModel() {
             is ServerMessage.Pong -> {
                 // Ignorar
             }
+            
+            is ServerMessage.PvPTableState -> {
+                // Estado de mesa PvP
+                _pvpTableState.value = message
+                _isPvPMode.value = true
+                
+                // Actualizar fichas del jugador actual
+                val myInfo = message.players.find { it.playerId == message.currentPlayerId }
+                if (myInfo != null) {
+                    _playerChips.value = myInfo.chips
+                    _currentBet.value = myInfo.currentBet
+                }
+                
+                // Determinar fase de la mesa
+                _tablePhase.value = when (message.phase) {
+                    "BETTING" -> TablePhase.BETTING
+                    "DEALING" -> TablePhase.PLAYING
+                    "PLAYER_TURNS" -> TablePhase.PLAYING
+                    "DEALER_TURN" -> TablePhase.DEALER_TURN
+                    "RESOLVING", "ROUND_END" -> TablePhase.RESULT
+                    else -> TablePhase.BETTING
+                }
+                
+                // Asegurar que estamos en la pantalla correcta
+                if (_uiState.value != GameUiState.AtPvPTable) {
+                    _uiState.value = GameUiState.AtPvPTable
+                }
+                
+                println("🎰 Mesa PvP actualizada: ${message.players.size} jugadores, fase: ${message.phase}")
+            }
         }
         gameClient.clearLastMessage()
     }
@@ -453,7 +520,8 @@ sealed class GameUiState {
     data object ShowingConfig : GameUiState()
     data object Connecting : GameUiState()
     data object Connected : GameUiState()
-    data object AtTable : GameUiState()  // Estado principal: en la mesa jugando
+    data object AtTable : GameUiState()       // Estado PVE: en la mesa jugando
+    data object AtPvPTable : GameUiState()    // Estado PVP: mesa compartida
     data object ShowingRecords : GameUiState()
     data object ShowingHistory : GameUiState()
     data class Error(val message: String) : GameUiState()

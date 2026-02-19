@@ -27,8 +27,8 @@ import blackjack.composeapp.generated.resources.*
 fun CardImage(
     card: Card,
     modifier: Modifier = Modifier,
-    cardWidth: Dp = 70.dp,
-    cardHeight: Dp = 100.dp
+    cardWidth: Dp = 125.dp,
+    cardHeight: Dp = 175.dp
 ) {
     androidx.compose.material3.Card(
         modifier = modifier

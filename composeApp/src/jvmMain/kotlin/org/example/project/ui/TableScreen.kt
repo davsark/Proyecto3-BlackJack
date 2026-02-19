@@ -168,7 +168,9 @@ fun TableScreen(
                 splitScore = gameState?.splitScore,
                 bustProbability = gameState?.bustProbability ?: 0.0,
                 isActive = tablePhase == TablePhase.PLAYING,
-                showCards = tablePhase != TablePhase.BETTING
+                showCards = tablePhase != TablePhase.BETTING,
+                multipleHands = gameState?.multipleHands ?: emptyList(),
+                activeHandIndex = gameState?.activeHandIndex ?: 0
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -177,7 +179,7 @@ fun TableScreen(
             // ZONA DE CONTROLES - Cambia según la fase
             // ═══════════════════════════════════════════════════════════════
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().weight(1f),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E).copy(alpha = 0.95f))
             ) {
@@ -393,22 +395,22 @@ private fun DealerZone(
         
         if (cards.isNotEmpty()) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy((-25).dp)
+                horizontalArrangement = Arrangement.spacedBy((-45).dp)
             ) {
                 cards.forEachIndexed { index, card ->
                     CardImage(
                         card = card,
-                        cardWidth = 60.dp,
-                        cardHeight = 84.dp
+                        cardWidth = 110.dp,
+                        cardHeight = 154.dp
                     )
                 }
             }
         } else {
-            // Placeholder
+            // Placeholder compacto (solo durante la fase de apuesta)
             Box(
                 modifier = Modifier
-                    .width(60.dp)
-                    .height(84.dp)
+                    .width(70.dp)
+                    .height(100.dp)
                     .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
                     .border(2.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
             )
@@ -424,78 +426,190 @@ private fun PlayerZone(
     splitScore: Int?,
     bustProbability: Double,
     isActive: Boolean,
-    showCards: Boolean
+    showCards: Boolean,
+    // Múltiples manos
+    multipleHands: List<MultiHandState> = emptyList(),
+    activeHandIndex: Int = 0
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        if (showCards && cards.isNotEmpty()) {
+        if (multipleHands.size > 1) {
+            // MODO MÚLTIPLES MANOS
             Row(
-                horizontalArrangement = Arrangement.spacedBy((-25).dp)
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Bottom
             ) {
-                cards.forEachIndexed { index, card ->
-                    CardImage(
-                        card = card,
-                        cardWidth = 65.dp,
-                        cardHeight = 91.dp
-                    )
+                multipleHands.forEachIndexed { index, handState ->
+                    val isActiveHand = index == activeHandIndex && handState.status == HandStatus.PLAYING
+                    
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(
+                                if (isActiveHand) Color(0xFF2E7D32).copy(alpha = 0.3f)
+                                else Color.Transparent,
+                                RoundedCornerShape(12.dp)
+                            )
+                            .border(
+                                width = if (isActiveHand) 3.dp else 1.dp,
+                                color = when {
+                                    isActiveHand -> Color(0xFFFFD700)
+                                    handState.status == HandStatus.BUSTED -> Color(0xFFE74C3C).copy(alpha = 0.5f)
+                                    handState.status == HandStatus.STANDING -> Color(0xFF2ECC71).copy(alpha = 0.5f)
+                                    handState.status == HandStatus.BLACKJACK -> Color(0xFFFFD700).copy(alpha = 0.5f)
+                                    else -> Color.White.copy(alpha = 0.2f)
+                                },
+                                RoundedCornerShape(12.dp)
+                            )
+                            .padding(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // Etiqueta de la mano
+                        Text(
+                            text = "MANO ${index + 1}",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isActiveHand) Color(0xFFFFD700) else Color.White.copy(alpha = 0.7f),
+                            letterSpacing = 1.sp
+                        )
+                        
+                        // Apuesta de esta mano
+                        Text(
+                            text = "🎯 ${handState.bet}",
+                            fontSize = 10.sp,
+                            color = Color(0xFFE74C3C)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(4.dp))
+                        
+                        // Cartas de esta mano
+                        if (handState.cards.isNotEmpty()) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy((-27).dp)
+                            ) {
+                                handState.cards.forEach { card ->
+                                    CardImage(
+                                        card = card,
+                                        cardWidth = 80.dp,
+                                        cardHeight = 112.dp
+                                    )
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(4.dp))
+                        
+                        // Puntuación
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "${handState.score}",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = when {
+                                    handState.status == HandStatus.BUSTED -> Color(0xFFE74C3C)
+                                    handState.score == 21 -> Color(0xFFFFD700)
+                                    else -> Color.White
+                                }
+                            )
+                            
+                            // Estado de la mano
+                            when (handState.status) {
+                                HandStatus.BUSTED -> {
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("💥", fontSize = 14.sp)
+                                }
+                                HandStatus.STANDING -> {
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("✋", fontSize = 14.sp)
+                                }
+                                HandStatus.BLACKJACK -> {
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("🎰", fontSize = 14.sp)
+                                }
+                                else -> {}
+                            }
+                        }
+                    }
                 }
             }
             
             Spacer(modifier = Modifier.height(8.dp))
             
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
+            // Indicador de mano activa
+            if (isActive) {
                 Text(
-                    text = "$score",
-                    fontSize = 28.sp,
+                    text = "▼ JUGANDO MANO ${activeHandIndex + 1} ▼",
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = when {
-                        score > 21 -> Color(0xFFFF5252)
-                        score == 21 -> Color(0xFFFFD700)
-                        else -> Color.White
-                    }
+                    color = Color(0xFFFFD700),
+                    letterSpacing = 2.sp
                 )
+            }
+            
+        } else {
+            // MODO MANO ÚNICA (comportamiento original)
+            if (showCards && cards.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy((-45).dp)
+                ) {
+                    cards.forEachIndexed { index, card ->
+                        CardImage(
+                            card = card,
+                            cardWidth = 115.dp,
+                            cardHeight = 161.dp
+                        )
+                    }
+                }
                 
-                if (bustProbability > 0 && score < 21 && isActive) {
-                    Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
                     Text(
-                        text = "⚠️ ${(bustProbability * 100).toInt()}%",
-                        fontSize = 12.sp,
+                        text = "$score",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
                         color = when {
-                            bustProbability > 0.5 -> Color(0xFFFF5252)
-                            bustProbability > 0.3 -> Color(0xFFFFA726)
-                            else -> Color(0xFF4CAF50)
+                            score > 21 -> Color(0xFFFF5252)
+                            score == 21 -> Color(0xFFFFD700)
+                            else -> Color.White
                         }
                     )
+                    
+                    if (bustProbability > 0 && score < 21 && isActive) {
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(
+                            text = "⚠️ ${(bustProbability * 100).toInt()}%",
+                            fontSize = 12.sp,
+                            color = when {
+                                bustProbability > 0.5 -> Color(0xFFFF5252)
+                                bustProbability > 0.3 -> Color(0xFFFFA726)
+                                else -> Color(0xFF4CAF50)
+                            }
+                        )
+                    }
                 }
             }
-        } else {
-            // Placeholder cuando no hay cartas
-            Box(
-                modifier = Modifier
-                    .width(65.dp)
-                    .height(91.dp)
-                    .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                    .border(2.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("?", fontSize = 24.sp, color = Color.White.copy(alpha = 0.5f))
-            }
+            // Cuando showCards=false (fase de apuesta) no mostramos placeholder para liberar espacio
+            
+            Spacer(modifier = Modifier.height(4.dp))
+            
+            Text(
+                text = "TU MANO",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isActive) Color(0xFFFFD700) else Color.White.copy(alpha = 0.7f),
+                letterSpacing = 3.sp
+            )
         }
-        
-        Spacer(modifier = Modifier.height(4.dp))
-        
-        Text(
-            text = "TU MANO",
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (isActive) Color(0xFFFFD700) else Color.White.copy(alpha = 0.7f),
-            letterSpacing = 3.sp
-        )
     }
 }
 
@@ -514,105 +628,190 @@ private fun BettingControls(
 ) {
     val actualMaxBet = minOf(maxBet, playerChips / numberOfHands)
     val totalBet = selectedBet * numberOfHands
-    
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Selector de número de manos
+        // Fichas de casino - clickeables para agregar
+        Text(
+            text = "Toca una ficha para agregarla:",
+            fontSize = 12.sp,
+            color = Color.White.copy(alpha = 0.6f)
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(vertical = 4.dp)
         ) {
-            Text("Manos:", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
-            listOf(1, 2, 3).forEach { hands ->
-                val canAfford = minBet * hands <= playerChips
+            listOf(
+                10 to Color(0xFF2196F3),   // Azul
+                25 to Color(0xFF4CAF50),   // Verde
+                50 to Color(0xFFE91E63),   // Rosa
+                100 to Color(0xFF9C27B0),  // Morado
+                500 to Color(0xFFFF9800)   // Naranja
+            ).forEach { (chip, color) ->
+                val canAfford = selectedBet + chip <= actualMaxBet
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
                         .background(
-                            if (numberOfHands == hands) Color(0xFF9B59B6) 
-                            else if (canAfford) Color(0xFF34495E) 
-                            else Color.Gray.copy(alpha = 0.3f)
+                            if (canAfford) color else Color.Gray.copy(alpha = 0.3f)
                         )
-                        .clickable(enabled = canAfford) { onHandsChange(hands) },
+                        .border(3.dp, Color(0xFFFFD700), CircleShape)
+                        .clickable(enabled = canAfford) {
+                            onBetChange(minOf(selectedBet + chip, actualMaxBet))
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "$hands",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
+                        text = if (chip >= 100) "${chip/100}00" else "$chip",
+                        fontSize = if (chip >= 100) 11.sp else 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (canAfford) Color.White else Color.Gray
                     )
                 }
             }
         }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // Selector de apuesta
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Apuesta actual con controles +/-
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier
+                .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            IconButton(
-                onClick = { 
-                    val newBet = (selectedBet - minBet).coerceAtLeast(minBet)
-                    onBetChange(newBet)
-                },
-                enabled = selectedBet > minBet
+            // Botón reset
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFE74C3C))
+                    .clickable { onBetChange(minBet) },
+                contentAlignment = Alignment.Center
             ) {
-                Text("➖", fontSize = 20.sp)
+                Text("↺", fontSize = 18.sp, color = Color.White, fontWeight = FontWeight.Bold)
             }
             
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            // Botón -
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(if (selectedBet > minBet) Color(0xFF3498DB) else Color.Gray.copy(alpha = 0.3f))
+                    .clickable(enabled = selectedBet > minBet) { 
+                        onBetChange(maxOf(selectedBet - 10, minBet))
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("−", fontSize = 24.sp, color = Color.White, fontWeight = FontWeight.Bold)
+            }
+            
+            // Valor de apuesta
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(horizontal = 16.dp)
+                modifier = Modifier.padding(horizontal = 24.dp)
             ) {
                 Text(
                     text = "$selectedBet",
-                    fontSize = 36.sp,
+                    fontSize = 32.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF2ECC71)
                 )
                 if (numberOfHands > 1) {
                     Text(
-                        text = "× $numberOfHands = $totalBet",
+                        text = "× $numberOfHands = $totalBet total",
                         fontSize = 12.sp,
                         color = Color(0xFFFFD700)
                     )
                 }
             }
             
-            IconButton(
-                onClick = { 
-                    val newBet = (selectedBet + minBet).coerceAtMost(actualMaxBet)
-                    onBetChange(newBet)
-                },
-                enabled = selectedBet < actualMaxBet
+            // Botón +
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(if (selectedBet < actualMaxBet) Color(0xFF3498DB) else Color.Gray.copy(alpha = 0.3f))
+                    .clickable(enabled = selectedBet < actualMaxBet) { 
+                        onBetChange(minOf(selectedBet + 10, actualMaxBet))
+                    },
+                contentAlignment = Alignment.Center
             ) {
-                Text("➕", fontSize = 20.sp)
+                Text("+", fontSize = 24.sp, color = Color.White, fontWeight = FontWeight.Bold)
+            }
+            
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            // All-in
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFFD700))
+                    .clickable { onBetChange(actualMaxBet) },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("MAX", fontSize = 9.sp, color = Color.Black, fontWeight = FontWeight.Bold)
             }
         }
         
-        // Fichas rápidas
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Selector de manos (más compacto)
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(vertical = 8.dp)
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .background(Color.Black.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 4.dp)
         ) {
-            listOf(10, 25, 50, 100).filter { it <= actualMaxBet }.forEach { chip ->
-                ChipButton(
-                    value = chip,
-                    isSelected = selectedBet == chip,
-                    onClick = { onBetChange(chip) }
-                )
+            Text("Manos: ", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
+            listOf(1, 2, 3, 4).forEach { hands ->
+                val canAfford = minBet * hands <= playerChips
+                val isSelected = numberOfHands == hands
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(
+                            when {
+                                isSelected -> Color(0xFF9B59B6)
+                                canAfford -> Color(0xFF34495E)
+                                else -> Color.Gray.copy(alpha = 0.2f)
+                            }
+                        )
+                        .border(
+                            width = if (isSelected) 2.dp else 0.dp,
+                            color = Color(0xFFFFD700),
+                            shape = CircleShape
+                        )
+                        .clickable(enabled = canAfford) { onHandsChange(hands) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "$hands",
+                        color = if (canAfford) Color.White else Color.Gray,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
             }
         }
         
-        Spacer(modifier = Modifier.height(12.dp))
-        
+        Spacer(modifier = Modifier.height(8.dp))
+
         // Botones de acción
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -620,52 +819,36 @@ private fun BettingControls(
         ) {
             // Repetir última apuesta
             if (lastBet in minBet..minOf(maxBet, playerChips)) {
-                OutlinedButton(
+                Button(
                     onClick = onRepeatLastBet,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3498DB))
                 ) {
-                    Text("🔄 $lastBet", color = Color.White)
+                    Text("🔄 $lastBet", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 }
             }
-            
+
             // Apostar
             Button(
                 onClick = onPlaceBet,
                 enabled = totalBet <= playerChips && selectedBet >= minBet,
-                modifier = Modifier.weight(if (lastBet > 0) 1f else 2f),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2ECC71))
+                modifier = Modifier
+                    .weight(if (lastBet in minBet..minOf(maxBet, playerChips)) 1.5f else 2f)
+                    .height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF2ECC71),
+                    disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
+                )
             ) {
                 Text(
-                    text = "🎴 REPARTIR",
+                    text = "🎴 ¡REPARTIR!",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
+                    fontSize = 17.sp
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun ChipButton(value: Int, isSelected: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(48.dp)
-            .clip(CircleShape)
-            .background(
-                if (isSelected) Color(0xFF2ECC71) else Color(0xFF34495E)
-            )
-            .border(2.dp, Color(0xFFFFD700), CircleShape)
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = "$value",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White
-        )
     }
 }
 

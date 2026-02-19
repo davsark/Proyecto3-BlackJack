@@ -24,7 +24,12 @@ class GameClient {
     private var input: BufferedReader? = null
     private var output: BufferedWriter? = null
     private val json = Json { ignoreUnknownKeys = true }
+
+    // Scope padre que nunca se cancela, permite reconexión sin reiniciar el objeto
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    // Job de la sesión activa (lectura + ping). Se cancela en disconnect()
+    private var ioJob: Job? = null
 
     // Estado de conexión
     private val _isConnected = MutableStateFlow(false)
@@ -48,6 +53,10 @@ class GameClient {
         try {
             println("🔌 Intentando conectar a $host:$port...")
 
+            // Cancelar sesión anterior si la hubiera
+            ioJob?.cancel()
+            ioJob = null
+
             socket = Socket(host, port)
             input = BufferedReader(InputStreamReader(socket!!.getInputStream()))
             output = BufferedWriter(OutputStreamWriter(socket!!.getOutputStream()))
@@ -57,8 +66,8 @@ class GameClient {
 
             println("✅ Conectado al servidor")
 
-            // Iniciar loop de lectura
-            startReadingMessages()
+            // Iniciar lectura y keep-alive bajo el mismo job cancelable
+            startIoLoops()
 
             true
         } catch (e: Exception) {
@@ -71,10 +80,32 @@ class GameClient {
     }
 
     /**
-     * Inicia el loop de lectura de mensajes del servidor
+     * Lanza el loop de lectura y el loop de ping como corrutinas hermanas
+     * bajo un único Job que se puede cancelar en disconnect().
      */
-    private fun startReadingMessages() {
-        scope.launch {
+    private fun startIoLoops() {
+        ioJob = scope.launch {
+            // Ping loop: envía Ping cada PING_INTERVAL_MS para evitar el soTimeout del servidor
+            launch {
+                while (isActive && _isConnected.value) {
+                    delay(GameConfig.PING_INTERVAL_MS)
+                    if (_isConnected.value) {
+                        try {
+                            val jsonMessage = json.encodeToString<ClientMessage>(ClientMessage.Ping)
+                            withContext(Dispatchers.IO) {
+                                output?.write(jsonMessage)
+                                output?.newLine()
+                                output?.flush()
+                            }
+                            println("💓 Ping enviado al servidor")
+                        } catch (e: Exception) {
+                            println("⚠️ Error enviando ping: ${e.message}")
+                        }
+                    }
+                }
+            }
+
+            // Loop principal de lectura de mensajes
             try {
                 while (_isConnected.value) {
                     val line = input?.readLine()
@@ -134,13 +165,15 @@ class GameClient {
     }
 
     /**
-     * Desconecta del servidor
+     * Desconecta del servidor. Cancela solo el ioJob de la sesión,
+     * dejando el scope padre activo para futuras reconexiones.
      */
     fun disconnect() {
         try {
             _isConnected.value = false
             socket?.close()
-            scope.cancel()
+            ioJob?.cancel()
+            ioJob = null
             println("👋 Desconectado del servidor")
         } catch (e: Exception) {
             println("⚠️ Error al desconectar: ${e.message}")

@@ -14,13 +14,14 @@ sealed class ClientMessage {
     data class JoinGame(
         val playerName: String,
         val gameMode: GameMode,
-        val buyIn: Int = 1000
+        val buyIn: Int = 1000,
+        val settings: GameSettings? = null
     ) : ClientMessage()
 
     /**
      * El jugador realiza una apuesta (soporta múltiples manos)
      * @param amount Apuesta por mano
-     * @param numberOfHands Número de manos a jugar (1-3)
+     * @param numberOfHands Número de manos a jugar (1-4)
      */
     @Serializable
     data class PlaceBet(
@@ -156,7 +157,7 @@ sealed class ServerMessage {
     ) : ServerMessage()
 
     /**
-     * Resultado final de la partida
+     * Resultado final de la partida (con soporte para múltiples manos)
      */
     @Serializable
     data class GameResult(
@@ -168,7 +169,26 @@ sealed class ServerMessage {
         val payout: Int = 0,
         val newChipsTotal: Int = 0,
         val splitResult: GameResultType? = null,
-        val splitPayout: Int? = null
+        val splitPayout: Int? = null,
+        // Resultados de múltiples manos
+        val handResults: List<SingleHandResult> = emptyList()
+    ) : ServerMessage()
+
+    /**
+     * Estado de la mesa PvP (enviado a todos los jugadores)
+     */
+    @Serializable
+    data class PvPTableState(
+        val tableId: String,
+        val phase: String,
+        val roundNumber: Int,
+        val players: List<PvPPlayerInfo>,
+        val dealerCards: List<Card>,
+        val dealerScore: Int,
+        val currentTurnPlayerId: String?,
+        val currentPlayerId: String, // ID del jugador que recibe este mensaje
+        val minBet: Int,
+        val maxBet: Int
     ) : ServerMessage()
 
     /**
@@ -407,3 +427,34 @@ enum class HandStatus {
     BLACKJACK,    // Blackjack natural
     COMPLETED     // Finalizada
 }
+
+/**
+ * Resultado de una mano individual (para múltiples manos)
+ */
+@Serializable
+data class SingleHandResult(
+    val handIndex: Int,
+    val cards: List<Card>,
+    val score: Int,
+    val bet: Int,
+    val result: GameResultType,
+    val payout: Int
+)
+
+/**
+ * Información de un jugador en mesa PvP
+ */
+@Serializable
+data class PvPPlayerInfo(
+    val playerId: String,
+    val name: String,
+    val chips: Int,
+    val currentBet: Int,
+    val cards: List<Card>,
+    val score: Int,
+    val status: String,
+    val isCurrentTurn: Boolean,
+    val isBusted: Boolean,
+    val isBlackjack: Boolean,
+    val isStanding: Boolean
+)
