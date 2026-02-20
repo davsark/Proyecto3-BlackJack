@@ -43,8 +43,24 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "org.example.project"
+
+            // 1. Nombre de la aplicación (así se llamará el .exe)
+            packageName = "Blackjack"
             packageVersion = "1.0.0"
+
+            // 2. Nombre del fabricante (muy recomendado en Windows para no parecer un virus)
+            vendor = "TuNombreOMarca"
+
+            // 3. 🎨 Asignación de los iconos para cada sistema
+            windows {
+                iconFile.set(project.file("icons/icon.ico"))
+            }
+            macOS {
+                iconFile.set(project.file("icons/icon.icns"))
+            }
+            linux {
+                iconFile.set(project.file("icons/icon.png"))
+            }
         }
     }
 }
