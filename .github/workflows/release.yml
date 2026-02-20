@@ -80,8 +80,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: client-${{ matrix.os }}
-          # Usamos ** para encontrar los archivos sin importar la subcarpeta de formato
-          path: composeApp/build/compose/binaries/main/**
+          # Subimos la carpeta 'app' que contiene el binario final (.msi, .dmg, .deb)
+          path: composeApp/build/compose/binaries/main/app/*
 
   # ══════════════════════════════════════════════════════════════
   # 3. TRABAJO: PUBLICACIÓN
@@ -94,15 +94,19 @@ jobs:
       - name: 🧲 Descargar todos los artefactos temporales
         uses: actions/download-artifact@v4
         with:
-          path: release-files
-          merge-multiple: true
+          path: all-artifacts
 
-      - name: 📢 Imprimir resumen de archivos generados
+      - name: 🧹 Filtrar y aplanar ejecutables
         run: |
-          ls -R release-files/
+          mkdir release-dist
+          # Buscamos solo los instaladores finales y el zip del servidor para evitar el error 'Not Found'
+          find all-artifacts -type f \( -name "*.msi" -o -name "*.exe" -o -name "*.dmg" -o -name "*.deb" -o -name "*.zip" \) -exec cp {} release-dist/ \;
+          echo "=== ARCHIVOS IDENTIFICADOS PARA SUBIR ==="
+          ls -R release-dist/
 
       - name: 🎉 Crear Release oficial
         uses: softprops/action-gh-release@v2
         with:
-          files: release-files/**/*
+          # Solo se suben los archivos filtrados en la carpeta release-dist
+          files: release-dist/*
           generate_release_notes: true
