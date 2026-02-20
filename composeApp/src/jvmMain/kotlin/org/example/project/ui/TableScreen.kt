@@ -708,7 +708,8 @@ private fun BettingControls(
             Button(
                 onClick = onPlaceBet,
                 enabled = totalBet <= playerChips && selectedBet >= minBet,
-                modifier = Modifier.size(48.dp),
+                // CAMBIO: Aumenta el tamaño aquí (ej. de 48.dp a 64.dp o usa weight)
+                modifier = Modifier.size(70.dp),
                 contentPadding = PaddingValues(0.dp),
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(
@@ -717,10 +718,12 @@ private fun BettingControls(
                 )
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("🎴", fontSize = 12.sp)
+                    // CAMBIO: Aumenta el tamaño del emoji (ej. de 12.sp a 20.sp)
+                    Text("🎴", fontSize = 20.sp)
                     Text(
                         text = "DAR!",
-                        fontSize = 8.sp,
+                        // CAMBIO: Aumenta el tamaño de la fuente (ej. de 8.sp a 14.sp)
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (totalBet <= playerChips && selectedBet >= minBet) Color.White else Color.White.copy(alpha = 0.4f)
                     )

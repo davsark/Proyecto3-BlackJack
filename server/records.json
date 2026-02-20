@@ -51,5 +51,27 @@
         "bestStreak": 1,
         "totalGain": -370,
         "gamesPlayed": 8
+    },
+    {
+        "playerName": "m9",
+        "wins": 1,
+        "losses": 0,
+        "blackjacks": 0,
+        "timestamp": 1771578821351,
+        "maxChips": 1010,
+        "currentStreak": 1,
+        "bestStreak": 1,
+        "totalGain": 10,
+        "gamesPlayed": 1
+    },
+    {
+        "playerName": "5",
+        "wins": 0,
+        "losses": 0,
+        "blackjacks": 0,
+        "timestamp": 1771578798952,
+        "currentStreak": -3,
+        "totalGain": -150,
+        "gamesPlayed": 3
     }
 ]

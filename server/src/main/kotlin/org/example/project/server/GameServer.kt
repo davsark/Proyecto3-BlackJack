@@ -19,31 +19,31 @@ class GameServer {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val recordsManager: RecordsManager
     private var isRunning = false
-    
-    // Configuración cargada desde archivo
+
+    // Configuracion cargada desde archivo
     private val config: Map<String, String>
     private val host: String
     private val port: Int
     private val maxClients: Int
     private val currentClients = AtomicInteger(0)
-    
-    // Configuración del juego
+
+    // Configuracion del juego
     val gameSettings: GameSettings
-    
+
     // Gestor de mesas PvP
     val tableManager: TableManager
 
     init {
-        // Cargar configuración
+        // Cargar configuracion
         config = loadConfiguration()
         host = config["server.host"] ?: GameConfig.DEFAULT_SERVER_HOST
         port = config["server.port"]?.toIntOrNull() ?: GameConfig.DEFAULT_SERVER_PORT
         maxClients = config["max.clients"]?.toIntOrNull() ?: GameConfig.MAX_CLIENTS
-        
+
         val recordsFile = config["server.recordsFile"] ?: "records.json"
         recordsManager = RecordsManager(recordsFile)
-        
-        // Configuración del juego
+
+        // Configuracion del juego
         gameSettings = GameSettings(
             numberOfDecks = config["game.numberOfDecks"]?.toIntOrNull() ?: GameConfig.DEFAULT_NUMBER_OF_DECKS,
             initialChips = config["game.initialChips"]?.toIntOrNull() ?: GameConfig.INITIAL_CHIPS,
@@ -56,22 +56,22 @@ class GameServer {
             maxSplits = GameConfig.MAX_SPLITS
         )
 
-        println("📋 Configuración del servidor:")
+        println("📋 Configuracion del servidor:")
         println("   Host: $host")
         println("   Puerto: $port")
-        println("   Máximo de clientes: $maxClients")
+        println("   Maximo de clientes: $maxClients")
         println("   Fichas iniciales: ${gameSettings.initialChips}")
-        println("   Apuesta mínima: ${gameSettings.minBet}")
-        println("   Apuesta máxima: ${gameSettings.maxBet}")
-        println("   Número de mazos: ${gameSettings.numberOfDecks}")
+        println("   Apuesta minima: ${gameSettings.minBet}")
+        println("   Apuesta maxima: ${gameSettings.maxBet}")
+        println("   Numero de mazos: ${gameSettings.numberOfDecks}")
         println("   Pago por Blackjack: ${gameSettings.blackjackPayout}x")
-        
+
         // Inicializar gestor de mesas PvP
         tableManager = TableManager(gameSettings, maxPlayersPerTable = 4)
     }
 
     /**
-     * Carga la configuración desde el archivo properties
+     * Carga la configuracion desde el archivo properties
      */
     private fun loadConfiguration(): Map<String, String> {
         val configMap = mutableMapOf<String, String>()
@@ -84,12 +84,12 @@ class GameServer {
                 properties.forEach { key, value ->
                     configMap[key.toString()] = value.toString()
                 }
-                println("✅ Configuración cargada desde: ${configFile.absolutePath}")
+                println("✅ Configuracion cargada desde: ${configFile.absolutePath}")
             } else {
-                println("⚠️ No se encontró archivo de configuración, usando valores por defecto")
+                println("⚠️ No se encontro archivo de configuracion, usando valores por defecto")
             }
         } catch (e: Exception) {
-            println("⚠️ Error al cargar configuración: ${e.message}")
+            println("⚠️ Error al cargar configuracion: ${e.message}")
             println("   Usando valores por defecto")
         }
 
@@ -111,26 +111,26 @@ class GameServer {
             println("=" .repeat(60))
             println("📡 Host: $host")
             println("📡 Puerto: $port")
-            println("👥 Máximo de clientes: $maxClients")
+            println("👥 Maximo de clientes: $maxClients")
             println("🎮 Esperando conexiones de clientes...")
             println("🛑 Presiona Ctrl+C para detener el servidor")
             println("=" .repeat(60))
             println()
 
-            // Loop principal de aceptación de conexiones
+            // Loop principal de aceptacion de conexiones
             while (isRunning) {
                 try {
                     val clientSocket = serverSocket?.accept() ?: break
 
-                    // Verificar límite de clientes
+                    // Verificar limite de clientes
                     if (currentClients.get() >= maxClients) {
-                        println("⚠️ Límite de clientes alcanzado ($maxClients). Rechazando conexión.")
+                        println("⚠️ Limite de clientes alcanzado ($maxClients). Rechazando conexion.")
                         clientSocket.close()
                         continue
                     }
 
                     currentClients.incrementAndGet()
-                    println("🔔 Nueva conexión desde: ${clientSocket.inetAddress.hostAddress}:${clientSocket.port}")
+                    println("🔔 Nueva conexion desde: ${clientSocket.inetAddress.hostAddress}:${clientSocket.port}")
                     println("   Clientes conectados: ${currentClients.get()}/$maxClients")
 
                     // Lanzar una corrutina para manejar este cliente

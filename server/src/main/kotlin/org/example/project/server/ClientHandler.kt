@@ -16,10 +16,7 @@ import java.net.SocketTimeoutException
 import java.util.*
 
 /**
- * Maneja la comunicación con un cliente individual
- * 
- * En modo PVE: Juega contra el dealer local
- * En modo PVP: Se une a una mesa compartida con otros jugadores
+ * Maneja la comunicacion con un cliente individual
  */
 class ClientHandler(
     private val socket: Socket,
@@ -33,45 +30,34 @@ class ClientHandler(
     private lateinit var output: BufferedWriter
     private val json = Json { ignoreUnknownKeys = true }
 
-    // Estado del juego (PVE)
     private val deck = Deck(gameSettings.numberOfDecks)
     private lateinit var dealerAI: DealerAI
     private var gameMode: GameMode? = null
-    
-    // Mesa PvP (cuando está en modo PVP)
+
     private var currentTable: Table? = null
-    
-    // Sistema de fichas y apuestas
+
     private var playerChips: Int = gameSettings.initialChips
     private var currentBet: Int = 0
     private var isInGame: Boolean = false
-    
-    // Soporte para múltiples manos
+
     private var numberOfHands: Int = 1
     private var totalBet: Int = 0
-    
-    // Historial de manos (últimas 10)
+
     private val handHistory = mutableListOf<HandHistory>()
 
     init {
         deck.shuffle()
     }
 
-    /**
-     * Maneja la conexión del cliente
-     */
     suspend fun handle() = coroutineScope {
         try {
-            // Configurar streams
             input = BufferedReader(InputStreamReader(socket.getInputStream()))
             output = BufferedWriter(OutputStreamWriter(socket.getOutputStream()))
 
-            // Configurar timeout
             socket.soTimeout = GameConfig.CONNECTION_TIMEOUT_MS.toInt()
 
             println("✅ Cliente conectado: ${socket.inetAddress.hostAddress}:${socket.port}")
 
-            // Loop principal de mensajes
             while (socket.isConnected && !socket.isClosed) {
                 val line = try {
                     input.readLine()
@@ -79,7 +65,7 @@ class ClientHandler(
                     println("⏱️ Timeout del cliente $playerName")
                     break
                 } catch (e: SocketException) {
-                    println("🔌 Conexión cerrada: $playerName")
+                    println("🔌 Conexion cerrada: $playerName")
                     break
                 }
 
@@ -99,7 +85,6 @@ class ClientHandler(
         } catch (e: Exception) {
             println("❌ Error en ClientHandler para $playerName: ${e.message}")
         } finally {
-            // Limpieza PvP
             if (gameMode == GameMode.PVP) {
                 tableManager.removePlayer(playerId)
             }
@@ -107,9 +92,6 @@ class ClientHandler(
         }
     }
 
-    /**
-     * Procesa un mensaje del cliente
-     */
     private suspend fun handleMessage(message: ClientMessage) {
         when (message) {
             is ClientMessage.JoinGame -> handleJoinGame(message)
@@ -127,9 +109,6 @@ class ClientHandler(
         }
     }
 
-    /**
-     * Maneja la unión de un jugador al juego
-     */
     private suspend fun handleJoinGame(message: ClientMessage.JoinGame) {
         playerName = message.playerName
         gameMode = message.gameMode
@@ -139,7 +118,6 @@ class ClientHandler(
 
         when (message.gameMode) {
             GameMode.PVE -> {
-                // Modo solitario — usar settings del cliente si las envió
                 val effectiveSettings = message.settings?.let { s ->
                     gameSettings.copy(
                         numberOfDecks      = s.numberOfDecks,
@@ -169,51 +147,41 @@ class ClientHandler(
                 ))
             }
             GameMode.PVP -> {
-                // Modo multijugador - unirse a mesa compartida
                 sendMessage(ServerMessage.JoinConfirmation(
                     playerId = playerId,
                     message = "Bienvenido $playerName. Buscando mesa PvP...",
                     initialChips = playerChips
                 ))
-                
-                // Buscar o crear mesa
+
                 val table = tableManager.findOrCreateTable(
                     playerId = playerId,
                     playerName = playerName,
                     chips = playerChips,
-                    callback = { message -> sendMessage(message) }
+                    callback = { msg -> sendMessage(msg) }
                 )
-                
+
                 if (table != null) {
                     currentTable = table
                     println("🎰 $playerName unido a mesa PvP: ${table.tableId}")
-                    // El estado de la mesa se enviará automáticamente desde Table
                 } else {
                     sendError("No se pudo unir a una mesa. Intenta de nuevo.")
                 }
             }
         }
-        // Records se solicitan manualmente cuando el jugador lo pida
     }
 
-    /**
-     * Maneja la apuesta del jugador (soporta múltiples manos en PVE, simple en PVP)
-     */
     private suspend fun handlePlaceBet(message: ClientMessage.PlaceBet) {
-        // En modo PVP, usar la mesa compartida
         if (gameMode == GameMode.PVP && currentTable != null) {
             currentTable?.placeBet(playerId, message.amount)
             return
         }
-        
-        // Modo PVE - lógica existente
+
         val betAmount = message.amount
         val numHands = message.numberOfHands.coerceIn(1, 4)
         val totalBetRequired = betAmount * numHands
-        
-        // Validar apuesta
+
         if (betAmount < gameSettings.minBet) {
-            sendError("La apuesta mínima es ${gameSettings.minBet}")
+            sendError("La apuesta minima es ${gameSettings.minBet}")
             return
         }
         if (totalBetRequired > playerChips) {
@@ -221,47 +189,36 @@ class ClientHandler(
             return
         }
         if (betAmount > gameSettings.maxBet) {
-            sendError("La apuesta máxima es ${gameSettings.maxBet}")
+            sendError("La apuesta maxima es ${gameSettings.maxBet}")
             return
         }
-        
+
         currentBet = betAmount
         numberOfHands = numHands
         totalBet = totalBetRequired
         isInGame = true
-        
+
         println("💰 $playerName apuesta $currentBet fichas x $numberOfHands manos = $totalBet total")
-        
-        // Iniciar la partida
         startGame()
     }
 
-    /**
-     * Inicia una nueva partida después de la apuesta (soporta múltiples manos)
-     */
     private suspend fun startGame() {
         dealerAI.checkAndResetDeck()
         val gameState = dealerAI.startNewGame(playerId, currentBet, playerChips - totalBet, numberOfHands)
         sendMessage(gameState)
 
-        // Verificar si hay Blackjack natural (solo en modo de una mano)
         if (numberOfHands == 1 && gameState.playerScore == 21 && gameState.playerHand.size == 2) {
             delay(500)
             finishGame()
         }
     }
 
-    /**
-     * Maneja la petición de carta
-     */
     private suspend fun handleRequestCard() {
-        // En modo PVP, usar la mesa compartida
         if (gameMode == GameMode.PVP && currentTable != null) {
             currentTable?.playerHit(playerId)
             return
         }
-        
-        // Modo PVE
+
         if (!isInGame || !::dealerAI.isInitialized) {
             sendError("No hay juego activo")
             return
@@ -276,17 +233,12 @@ class ClientHandler(
         }
     }
 
-    /**
-     * Maneja cuando el jugador se planta
-     */
     private suspend fun handleStand() {
-        // En modo PVP, usar la mesa compartida
         if (gameMode == GameMode.PVP && currentTable != null) {
             currentTable?.playerStand(playerId)
             return
         }
-        
-        // Modo PVE
+
         if (!isInGame || !::dealerAI.isInitialized) {
             sendError("No hay juego activo")
             return
@@ -295,30 +247,23 @@ class ClientHandler(
         val gameState = dealerAI.playerStand(playerId)
         sendMessage(gameState)
 
-        // Solo finalizar si el juego terminó (todas las manos completas + dealer jugó)
         if (gameState.gameState == GamePhase.GAME_OVER) {
             delay(500)
             finishGame()
         }
     }
 
-    /**
-     * Maneja cuando el jugador dobla
-     */
     private suspend fun handleDouble() {
-        // En modo PVP, usar la mesa compartida
         if (gameMode == GameMode.PVP && currentTable != null) {
             currentTable?.playerDouble(playerId)
             return
         }
-        
-        // Modo PVE
+
         if (!isInGame || !::dealerAI.isInitialized) {
             sendError("No hay juego activo")
             return
         }
-        
-        // Verificar que puede doblar
+
         if (currentBet > playerChips - currentBet) {
             sendError("No tienes suficientes fichas para doblar")
             return
@@ -329,35 +274,27 @@ class ClientHandler(
             sendError("No puedes doblar en este momento")
             return
         }
-        
+
         println("🎲 $playerName dobla")
-        
         sendMessage(result)
-        
-        // Solo finalizar si el juego terminó
+
         if (result.gameState == GamePhase.GAME_OVER) {
             delay(500)
             finishGame()
         }
     }
 
-    /**
-     * Maneja cuando el jugador divide
-     */
     private suspend fun handleSplit() {
-        // Split no disponible en PVP por simplicidad
         if (gameMode == GameMode.PVP) {
             sendError("Split no disponible en modo PvP")
             return
         }
-        
-        // Modo PVE
+
         if (!isInGame || !::dealerAI.isInitialized) {
             sendError("No hay juego activo")
             return
         }
-        
-        // Verificar que puede dividir
+
         if (currentBet > playerChips - currentBet) {
             sendError("No tienes suficientes fichas para dividir")
             return
@@ -368,29 +305,24 @@ class ClientHandler(
             sendError("No puedes dividir en este momento (necesitas dos cartas del mismo valor)")
             return
         }
-        
+
         println("✂️ $playerName divide su mano")
         sendMessage(result)
     }
 
-    /**
-     * Maneja cuando el jugador se rinde
-     */
     private suspend fun handleSurrender() {
-        // En modo PVP, usar la mesa compartida
         if (gameMode == GameMode.PVP && currentTable != null) {
             currentTable?.playerSurrender(playerId)
             return
         }
-        
-        // Modo PVE
+
         if (!isInGame || !::dealerAI.isInitialized) {
             sendError("No hay juego activo")
             return
         }
 
         if (!gameSettings.allowSurrender) {
-            sendError("La rendición no está permitida en esta mesa")
+            sendError("La rendicion no esta permitida en esta mesa")
             return
         }
 
@@ -402,7 +334,6 @@ class ClientHandler(
 
         sendMessage(gameStateResult)
 
-        // Obtener y enviar resultado con pago correcto
         val surrenderResult = dealerAI.getSurrenderResult(playerId, currentBet, playerChips)
         playerChips = surrenderResult.newChipsTotal
         isInGame = false
@@ -410,7 +341,6 @@ class ClientHandler(
         println("🏳️ $playerName se rinde. Fichas: $playerChips")
         sendMessage(surrenderResult)
 
-        // Guardar en historial
         val historyEntry = HandHistory(
             playerHand = dealerAI.getPlayerHand(playerId),
             dealerHand = surrenderResult.dealerFinalHand,
@@ -444,25 +374,20 @@ class ClientHandler(
                 currentChips = playerChips
             ))
         } else {
-            sendMessage(ServerMessage.Error("¡Te has quedado sin fichas! Inicia una nueva sesión para continuar."))
+            sendMessage(ServerMessage.Error("¡Te has quedado sin fichas! Inicia una nueva sesion para continuar."))
         }
     }
 
-    /**
-     * Finaliza el juego y envía el resultado
-     */
     private suspend fun finishGame() {
         val result = dealerAI.getGameResult(playerId, currentBet, playerChips)
-        
-        // Actualizar fichas
+
         playerChips = result.newChipsTotal
         isInGame = false
-        
+
         println("🏆 Resultado para $playerName: ${result.result} | Pago: ${result.payout} | Fichas: $playerChips")
-        
+
         sendMessage(result)
-        
-        // Guardar en historial (últimas 10 manos)
+
         val historyEntry = HandHistory(
             playerHand = dealerAI.getPlayerHand(playerId),
             dealerHand = result.dealerFinalHand,
@@ -478,7 +403,6 @@ class ClientHandler(
             handHistory.removeAt(handHistory.size - 1)
         }
 
-        // Guardar en records
         recordsManager.recordGameResult(
             playerName = playerName,
             result = result.result,
@@ -486,12 +410,11 @@ class ClientHandler(
             payout = result.payout,
             finalChips = playerChips
         )
-        
+
         currentBet = 0
         numberOfHands = 1
         totalBet = 0
-        
-        // Solicitar nueva apuesta si tiene fichas
+
         if (playerChips >= gameSettings.minBet) {
             delay(1000)
             sendMessage(ServerMessage.RequestBet(
@@ -500,25 +423,21 @@ class ClientHandler(
                 currentChips = playerChips
             ))
         } else {
-            sendMessage(ServerMessage.Error("¡Te has quedado sin fichas! Inicia una nueva sesión para continuar."))
+            sendMessage(ServerMessage.Error("¡Te has quedado sin fichas! Inicia una nueva sesion para continuar."))
         }
     }
 
-    /**
-     * Maneja la solicitud de nueva partida
-     */
     private suspend fun handleNewGame() {
         if (gameMode == null || !::dealerAI.isInitialized) {
             sendError("Debes unirte primero al juego")
             return
         }
-        
+
         if (playerChips < gameSettings.minBet) {
-            // Restaurar fichas iniciales para nueva sesión
             playerChips = gameSettings.initialChips
             println("🔄 $playerName reinicia con ${gameSettings.initialChips} fichas")
         }
-        
+
         sendMessage(ServerMessage.RequestBet(
             minBet = gameSettings.minBet,
             maxBet = minOf(gameSettings.maxBet, playerChips),
@@ -526,30 +445,21 @@ class ClientHandler(
         ))
     }
 
-    /**
-     * Maneja la solicitud de records
-     */
     private suspend fun handleRequestRecords() {
         val records = recordsManager.getTopRecords()
         sendMessage(ServerMessage.RecordsList(records))
     }
 
-    /**
-     * Maneja la solicitud de historial de manos
-     */
     private suspend fun handleRequestHistory() {
         sendMessage(ServerMessage.HandHistoryList(handHistory.toList()))
     }
 
-    /**
-     * Maneja la selección de mano activa (para múltiples manos)
-     */
     private suspend fun handleSelectHand(message: ClientMessage.SelectHand) {
         if (!isInGame || !::dealerAI.isInitialized) {
             sendError("No hay juego activo")
             return
         }
-        
+
         val success = dealerAI.selectHand(playerId, message.handIndex)
         if (success) {
             val gameState = dealerAI.getCurrentState(playerId, playerChips - totalBet)
@@ -559,16 +469,10 @@ class ClientHandler(
         }
     }
 
-    /**
-     * Maneja el ping
-     */
     private suspend fun handlePing() {
         sendMessage(ServerMessage.Pong)
     }
 
-    /**
-     * Envía un mensaje al cliente
-     */
     private suspend fun sendMessage(message: ServerMessage) = withContext(Dispatchers.IO) {
         try {
             val jsonMessage = json.encodeToString(message)
@@ -581,22 +485,16 @@ class ClientHandler(
         }
     }
 
-    /**
-     * Envía un mensaje de error
-     */
     private suspend fun sendError(errorMessage: String) {
         sendMessage(ServerMessage.Error(errorMessage))
     }
 
-    /**
-     * Limpieza de recursos
-     */
     private fun cleanup() {
         try {
             socket.close()
-            println("🧹 Conexión cerrada limpiamente: $playerName")
+            println("🧹 Conexion cerrada limpiamente: $playerName")
         } catch (e: Exception) {
-            println("⚠️ Error al cerrar conexión: ${e.message}")
+            println("⚠️ Error al cerrar conexion: ${e.message}")
         }
     }
 }
