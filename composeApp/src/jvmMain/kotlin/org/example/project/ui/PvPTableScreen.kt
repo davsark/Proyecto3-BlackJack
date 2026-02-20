@@ -23,27 +23,6 @@ import org.example.project.ui.common.CardImage
 
 /**
  * Pantalla de mesa PvP - Muestra todos los jugadores en la misma mesa
- * 
- * Layout:
- * ┌─────────────────────────────────────────────────────────────┐
- * │  [Mesa: X]              [Ronda: Y]              [Fichas: Z] │
- * ├─────────────────────────────────────────────────────────────┤
- * │                                                             │
- * │                      🎰 DEALER 🎰                           │
- * │                         🃏 🃏                                │
- * │                      Score: 17                              │
- * │                                                             │
- * │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
- * │  │ Jugador1 │  │ Jugador2 │  │ Jugador3 │  │ Jugador4 │   │
- * │  │  (TÚ)    │  │ (Turno)  │  │ Esperando│  │ Esperando│   │
- * │  │   🃏 🃏   │  │   🃏 🃏   │  │   🃏 🃏   │  │   🃏 🃏   │   │
- * │  │ Score:15 │  │ Score:18 │  │ Score:21 │  │ Score:12 │   │
- * │  │ Bet: 50  │  │ Bet:100  │  │ Bet: 25  │  │ Bet: 75  │   │
- * │  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
- * │                                                             │
- * │           [HIT]  [STAND]  [DOUBLE]  [SURRENDER]            │
- * │                                                             │
- * └─────────────────────────────────────────────────────────────┘
  */
 @Composable
 fun PvPTableScreen(
@@ -65,7 +44,7 @@ fun PvPTableScreen(
 ) {
     // Estado local para la apuesta
     var selectedBet by remember { mutableStateOf(minBet) }
-    
+
     // Encontrar mi info
     val myInfo = tableState.players.find { it.playerId == tableState.currentPlayerId }
     val isMyTurn = tableState.currentTurnPlayerId == tableState.currentPlayerId
@@ -73,7 +52,7 @@ fun PvPTableScreen(
     val isPlayingPhase = tableState.phase == "PLAYER_TURNS"
     val isDealerPhase = tableState.phase == "DEALER_TURN"
     val isResultPhase = tableState.phase == "RESOLVING" || tableState.phase == "ROUND_END"
-    
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -117,7 +96,7 @@ fun PvPTableScreen(
                 isActive = isDealerPhase
             )
 
-            Spacer(modifier = Modifier.weight(0.3f))
+            Spacer(modifier = Modifier.weight(0.2f))
 
             // ═══════════════════════════════════════════════════════════════
             // MENSAJE DE ESTADO
@@ -125,7 +104,7 @@ fun PvPTableScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                    .padding(vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
                 val statusText = when {
@@ -136,17 +115,17 @@ fun PvPTableScreen(
                     isResultPhase -> "📊 RESULTADOS"
                     else -> "⏳ Esperando..."
                 }
-                
+
                 Text(
                     text = statusText,
-                    fontSize = 20.sp,
+                    fontSize = 24.sp, // Aumentado
                     fontWeight = FontWeight.Bold,
                     color = if (isMyTurn) Color(0xFFFFD700) else Color.White,
                     letterSpacing = 2.sp
                 )
             }
 
-            Spacer(modifier = Modifier.weight(0.2f))
+            Spacer(modifier = Modifier.weight(0.1f))
 
             // ═══════════════════════════════════════════════════════════════
             // ZONA DE JUGADORES
@@ -170,7 +149,6 @@ fun PvPTableScreen(
             ) {
                 when {
                     isBettingPhase && myInfo?.status == "BETTING" -> {
-                        // Controles de apuesta
                         PvPBettingControls(
                             playerChips = myInfo.chips,
                             minBet = minBet,
@@ -181,11 +159,9 @@ fun PvPTableScreen(
                         )
                     }
                     isBettingPhase && myInfo?.status != "BETTING" -> {
-                        // Ya aposté, esperando a otros
                         WaitingMessage("Esperando a que otros jugadores apuesten...")
                     }
                     isPlayingPhase && isMyTurn -> {
-                        // Mis controles de juego
                         PvPPlayingControls(
                             canDouble = (myInfo?.cards?.size ?: 0) == 2,
                             canSurrender = (myInfo?.cards?.size ?: 0) == 2,
@@ -196,7 +172,6 @@ fun PvPTableScreen(
                         )
                     }
                     isPlayingPhase && !isMyTurn -> {
-                        // Esperando mi turno
                         val currentPlayer = tableState.players.find { it.isCurrentTurn }
                         WaitingMessage("Esperando a ${currentPlayer?.name ?: "otro jugador"}...")
                     }
@@ -204,7 +179,6 @@ fun PvPTableScreen(
                         WaitingMessage("El dealer está jugando...")
                     }
                     isResultPhase -> {
-                        // Mostrar mi resultado
                         PvPResultControls(
                             myInfo = myInfo,
                             dealerScore = tableState.dealerScore
@@ -217,7 +191,6 @@ fun PvPTableScreen(
             }
         }
 
-        // Overlay de resultado (si aplica)
         if (gameResult != null) {
             ResultOverlay(
                 result = gameResult,
@@ -244,45 +217,42 @@ private fun PvPTopBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Info de mesa
         Column {
             Text(
                 text = "🎰 ${tableId.uppercase()}",
-                fontSize = 14.sp,
+                fontSize = 16.sp, // Aumentado
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFFFFD700)
             )
             Text(
                 text = "Ronda $roundNumber",
-                fontSize = 12.sp,
+                fontSize = 14.sp, // Aumentado
                 color = Color.White.copy(alpha = 0.7f)
             )
         }
-        
-        // Fichas
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .background(Color(0xFF2E7D32), RoundedCornerShape(20.dp))
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            Text("💰", fontSize = 16.sp)
+            Text("💰", fontSize = 18.sp)
             Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = "$playerChips",
-                fontSize = 18.sp,
+                fontSize = 20.sp, // Aumentado
                 fontWeight = FontWeight.Bold,
                 color = Color.White
             )
         }
-        
-        // Botones
+
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             IconButton(onClick = onShowRecords) {
-                Text("🏆", fontSize = 20.sp)
+                Text("🏆", fontSize = 22.sp)
             }
             IconButton(onClick = onLeaveTable) {
-                Text("🚪", fontSize = 20.sp)
+                Text("🚪", fontSize = 22.sp)
             }
         }
     }
@@ -306,34 +276,34 @@ private fun DealerZone(
     ) {
         Text(
             text = "🎰 DEALER 🎰",
-            fontSize = 16.sp,
+            fontSize = 20.sp, // Aumentado
             fontWeight = FontWeight.Bold,
             color = if (isActive) Color(0xFFFFD700) else Color.White.copy(alpha = 0.7f),
             letterSpacing = 3.sp
         )
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
+
+        Spacer(modifier = Modifier.height(12.dp))
+
         if (cards.isNotEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy((-36).dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy((-40).dp)) { // Espaciado ajustado por tamaño
                 cards.forEach { card ->
-                    CardImage(card = card, cardWidth = 100.dp, cardHeight = 140.dp)
+                    CardImage(card = card, cardWidth = 120.dp, cardHeight = 168.dp) // Cartas del dealer más grandes
                 }
             }
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             if (showScore) {
                 Text(
                     text = "$score",
-                    fontSize = 24.sp,
+                    fontSize = 28.sp, // Aumentado
                     fontWeight = FontWeight.Bold,
                     color = if (score > 21) Color(0xFFE74C3C) else Color.White
                 )
             } else {
                 Text(
                     text = "?",
-                    fontSize = 24.sp,
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White.copy(alpha = 0.5f)
                 )
@@ -351,12 +321,12 @@ private fun PlayersZone(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
     ) {
         players.forEach { player ->
             val isMe = player.playerId == currentPlayerId
             val isMyTurn = player.playerId == currentTurnPlayerId
-            
+
             PlayerCard(
                 player = player,
                 isMe = isMe,
@@ -384,36 +354,36 @@ private fun PlayerCard(
         isMe -> Color(0xFF3498DB)
         else -> Color.White.copy(alpha = 0.2f)
     }
-    
+
     val bgColor = when {
         isMyTurn -> Color(0xFF2E7D32).copy(alpha = 0.3f)
         isMe -> Color(0xFF1A5276).copy(alpha = 0.3f)
         else -> Color.Black.copy(alpha = 0.2f)
     }
-    
+
     Column(
         modifier = modifier
-            .widthIn(min = 100.dp, max = 140.dp)
+            .widthIn(min = 140.dp, max = 180.dp) // Contenedor más ancho
             .background(bgColor, RoundedCornerShape(12.dp))
             .border(
                 width = if (isMyTurn || isMe) 3.dp else 1.dp,
                 color = borderColor,
                 shape = RoundedCornerShape(12.dp)
             )
-            .padding(8.dp),
+            .padding(12.dp), // Más padding
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Nombre
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = if (isMe) "👤 ${player.name}" else player.name,
-                fontSize = 12.sp,
+                fontSize = 16.sp, // Aumentado
                 fontWeight = if (isMe) FontWeight.Bold else FontWeight.Normal,
                 color = if (isMe) Color(0xFF3498DB) else Color.White,
                 maxLines = 1
             )
         }
-        
+
         // Estado
         val statusText = when {
             player.isBlackjack -> "🎰 BLACKJACK"
@@ -427,7 +397,8 @@ private fun PlayerCard(
         if (statusText.isNotEmpty()) {
             Text(
                 text = statusText,
-                fontSize = 10.sp,
+                fontSize = 14.sp, // Aumentado
+                fontWeight = FontWeight.Bold,
                 color = when {
                     player.isBlackjack -> Color(0xFFFFD700)
                     player.isBusted -> Color(0xFFE74C3C)
@@ -436,23 +407,24 @@ private fun PlayerCard(
                 }
             )
         }
-        
-        Spacer(modifier = Modifier.height(4.dp))
-        
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         // Cartas
         if (showCards && player.cards.isNotEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy((-22).dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy((-30).dp)) { // Ajustado para cartas más grandes
                 player.cards.forEach { card ->
-                    CardImage(card = card, cardWidth = 65.dp, cardHeight = 91.dp)
+                    // CARTAS MUCHO MÁS GRANDES
+                    CardImage(card = card, cardWidth = 90.dp, cardHeight = 126.dp)
                 }
             }
-            
-            Spacer(modifier = Modifier.height(4.dp))
-            
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             // Score
             Text(
                 text = "${player.score}",
-                fontSize = 18.sp,
+                fontSize = 26.sp, // Aumentado
                 fontWeight = FontWeight.Bold,
                 color = when {
                     player.isBusted -> Color(0xFFE74C3C)
@@ -461,37 +433,46 @@ private fun PlayerCard(
                 }
             )
         } else {
-            // Placeholder
+            // Placeholder escalado
             Box(
                 modifier = Modifier
-                    .width(35.dp)
-                    .height(49.dp)
+                    .width(45.dp)
+                    .height(63.dp)
                     .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(4.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Text("?", color = Color.White.copy(alpha = 0.3f))
+                Text("?", color = Color.White.copy(alpha = 0.3f), fontSize = 20.sp)
             }
         }
-        
-        // Apuesta
-        if (player.currentBet > 0) {
-            Spacer(modifier = Modifier.height(4.dp))
+
+        // Apuesta y Fichas
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            if (player.currentBet > 0) {
+                Text(
+                    text = "🎯 ${player.currentBet}",
+                    fontSize = 14.sp, // Aumentado
+                    color = Color(0xFFE74C3C),
+                    fontWeight = FontWeight.Bold
+                )
+            }
             Text(
-                text = "🎯 ${player.currentBet}",
-                fontSize = 11.sp,
-                color = Color(0xFFE74C3C),
+                text = "💰 ${player.chips}",
+                fontSize = 14.sp, // Aumentado
+                color = Color.White.copy(alpha = 0.6f),
                 fontWeight = FontWeight.Bold
             )
         }
-        
-        // Fichas
-        Text(
-            text = "💰 ${player.chips}",
-            fontSize = 10.sp,
-            color = Color.White.copy(alpha = 0.6f)
-        )
     }
 }
+
+// -----------------------------------------------------------------------------------------
+// Los bloques de Controles (Apuesta, Jugar, Resultado) se mantienen casi iguales,
+// pero aseguro de usar el diseño mejorado de 2 filas para "Jugar" que hicimos antes.
+// -----------------------------------------------------------------------------------------
 
 @Composable
 private fun PvPBettingControls(
@@ -510,84 +491,68 @@ private fun PvPBettingControls(
     ) {
         Text(
             text = "ELIGE TU APUESTA",
-            fontSize = 14.sp,
+            fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
             color = Color(0xFFFFD700),
             letterSpacing = 2.sp
         )
-        
+
         Spacer(modifier = Modifier.height(12.dp))
-        
-        // Selector de apuesta
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
-            // Botón -
-            IconButton(
-                onClick = { if (selectedBet > minBet) onBetChange(selectedBet - 10) }
-            ) {
-                Text("➖", fontSize = 20.sp)
+            IconButton(onClick = { if (selectedBet > minBet) onBetChange(selectedBet - 10) }) {
+                Text("➖", fontSize = 24.sp)
             }
-            
-            // Valor
             Text(
                 text = "$selectedBet",
-                fontSize = 32.sp,
+                fontSize = 36.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
                 modifier = Modifier.padding(horizontal = 24.dp)
             )
-            
-            // Botón +
-            IconButton(
-                onClick = { if (selectedBet < minOf(maxBet, playerChips)) onBetChange(selectedBet + 10) }
-            ) {
-                Text("➕", fontSize = 20.sp)
+            IconButton(onClick = { if (selectedBet < minOf(maxBet, playerChips)) onBetChange(selectedBet + 10) }) {
+                Text("➕", fontSize = 24.sp)
             }
         }
-        
-        // Fichas rápidas
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             listOf(10, 25, 50, 100).forEach { amount ->
                 val canAfford = amount <= playerChips
                 Box(
                     modifier = Modifier
-                        .size(50.dp)
+                        .size(60.dp)
                         .clip(CircleShape)
-                        .background(
-                            if (canAfford) Color(0xFF8B4513) else Color.Gray.copy(alpha = 0.3f)
-                        )
+                        .background(if (canAfford) Color(0xFF8B4513) else Color.Gray.copy(alpha = 0.3f))
                         .border(2.dp, Color(0xFFFFD700), CircleShape)
                         .clickable(enabled = canAfford) { onBetChange(amount) },
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "$amount",
-                        fontSize = 12.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (canAfford) Color.White else Color.Gray
                     )
                 }
             }
         }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // Botón apostar
+
+        Spacer(modifier = Modifier.height(20.dp))
+
         Button(
             onClick = onPlaceBet,
             modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp),
+                .fillMaxWidth(0.6f)
+                .height(56.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2ECC71)),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(14.dp)
         ) {
             Text(
                 text = "💰 APOSTAR $selectedBet",
-                fontSize = 18.sp,
+                fontSize = 20.sp,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -607,71 +572,62 @@ private fun PvPPlayingControls(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(
-            text = "🎴 ¡TU TURNO!",
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFFFFD700),
-            letterSpacing = 2.sp
-        )
-        
-        Spacer(modifier = Modifier.height(12.dp))
-        
-        // Fila principal
+        // FILA 1: Acciones principales
         Row(
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Button(
                 onClick = onHit,
-                modifier = Modifier.weight(1f).height(50.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3498DB)),
-                shape = RoundedCornerShape(12.dp)
+                modifier = Modifier.weight(1f).height(64.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2ECC71)),
+                shape = RoundedCornerShape(14.dp)
             ) {
-                Text("🃏 PEDIR", fontWeight = FontWeight.Bold)
+                Text("🎴 PEDIR", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
-            
+
             Button(
                 onClick = onStand,
-                modifier = Modifier.weight(1f).height(50.dp),
+                modifier = Modifier.weight(1f).height(64.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF39C12)),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(14.dp)
             ) {
-                Text("✋ PLANTARSE", fontWeight = FontWeight.Bold)
+                Text("✋ PLANTARSE", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
         }
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        // Fila secundaria
+
+        // FILA 2: Acciones secundarias
         Row(
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Button(
                 onClick = onDouble,
                 enabled = canDouble,
-                modifier = Modifier.weight(1f).height(45.dp),
+                modifier = Modifier.weight(1f).height(56.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF9B59B6),
+                    containerColor = Color(0xFF3498DB),
                     disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
                 ),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("🎲 DOBLAR", fontSize = 13.sp)
+                Text("💰 DOBLAR", fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
-            
+
             Button(
                 onClick = onSurrender,
                 enabled = canSurrender,
-                modifier = Modifier.weight(1f).height(45.dp),
+                modifier = Modifier.weight(1f).height(56.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFFE74C3C),
                     disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
                 ),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("🏳️ RENDIRSE", fontSize = 13.sp)
+                Text("🏳️ RENDIRSE", fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -696,29 +652,29 @@ private fun PvPResultControls(
                 myInfo.score < dealerScore -> Triple("💔", "PERDISTE", Color(0xFFE74C3C))
                 else -> Triple("🤝", "EMPATE", Color(0xFFF39C12))
             }
-            
-            Text(text = emoji, fontSize = 48.sp)
+
+            Text(text = emoji, fontSize = 56.sp)
             Text(
                 text = resultText,
-                fontSize = 24.sp,
+                fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = color
             )
-            
+
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             Text(
                 text = "${myInfo.score} vs $dealerScore",
-                fontSize = 18.sp,
+                fontSize = 22.sp,
                 color = Color.White
             )
         }
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         Text(
             text = "Siguiente ronda en breve...",
-            fontSize = 12.sp,
+            fontSize = 16.sp,
             color = Color.White.copy(alpha = 0.6f)
         )
     }
@@ -734,7 +690,8 @@ private fun WaitingMessage(message: String) {
     ) {
         Text(
             text = "⏳ $message",
-            fontSize = 16.sp,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
             color = Color.White.copy(alpha = 0.7f),
             textAlign = TextAlign.Center
         )
@@ -753,7 +710,7 @@ private fun ResultOverlay(
         GameResultType.PUSH -> Triple("🤝", "EMPATE", Color(0xFFF39C12))
         GameResultType.SURRENDER -> Triple("🏳️", "RENDICIÓN", Color(0xFF9E9E9E))
     }
-    
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -763,7 +720,7 @@ private fun ResultOverlay(
     ) {
         Card(
             modifier = Modifier
-                .widthIn(max = 300.dp)
+                .widthIn(max = 350.dp)
                 .padding(24.dp),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = bgColor)
@@ -774,37 +731,38 @@ private fun ResultOverlay(
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(text = emoji, fontSize = 48.sp)
+                Text(text = emoji, fontSize = 56.sp)
                 Text(
                     text = text,
-                    fontSize = 28.sp,
+                    fontSize = 32.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 Text(
                     text = when {
                         result.payout > 0 -> "+${result.payout} fichas"
                         result.payout < 0 -> "${result.payout} fichas"
                         else -> "±0 fichas"
                     },
-                    fontSize = 18.sp,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
-                
+
                 Text(
                     text = "Total: ${result.newChipsTotal}",
-                    fontSize = 14.sp,
+                    fontSize = 18.sp,
                     color = Color.White.copy(alpha = 0.8f)
                 )
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                
+
+                Spacer(modifier = Modifier.height(24.dp))
+
                 Text(
                     text = "Toca para continuar",
-                    fontSize = 12.sp,
+                    fontSize = 16.sp,
                     color = Color.White.copy(alpha = 0.6f)
                 )
             }
