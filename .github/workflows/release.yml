@@ -81,7 +81,7 @@ jobs:
         with:
           name: client-${{ matrix.os }}
           # Subimos la carpeta 'app' que contiene el binario final (.msi, .dmg, .deb)
-          path: composeApp/build/compose/binaries/main/app/*
+          path: composeApp/build/compose/binaries/main/**/*
 
   # ══════════════════════════════════════════════════════════════
   # 3. TRABAJO: PUBLICACIÓN
