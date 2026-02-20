@@ -65,6 +65,29 @@
         "gamesPlayed": 1
     },
     {
+        "playerName": "Test1",
+        "wins": 1,
+        "losses": 0,
+        "blackjacks": 0,
+        "timestamp": 1771595290016,
+        "currentStreak": 1,
+        "bestStreak": 1,
+        "totalGain": -50,
+        "gamesPlayed": 1
+    },
+    {
+        "playerName": "tes1",
+        "wins": 1,
+        "losses": 1,
+        "blackjacks": 0,
+        "timestamp": 1771595351562,
+        "maxChips": 1100,
+        "currentStreak": 1,
+        "bestStreak": 1,
+        "totalGain": 100,
+        "gamesPlayed": 2
+    },
+    {
         "playerName": "5",
         "wins": 0,
         "losses": 0,

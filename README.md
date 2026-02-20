@@ -2,6 +2,14 @@
 
 Proyecto de Blackjack desarrollado en Kotlin Multiplatform con Compose Desktop.
 
+
+
+### Autor:** David Márquez López
+### 🎬 Vídeo Explicativo (10 min):** https://youtu.be/M8dIqBxZvmg
+### 🌐 Enlace del Proyecto/Release:** https://github.com/davsark/Proyecto3-BlackJack/releases/tag/v1.0.5
+
+
+
 ## 📋 Características
 
 - ✅ **Modo PVE**: Juega contra el dealer (IA)
@@ -322,6 +330,8 @@ Los records se guardan automáticamente y incluyen:
 - Fichas máximas alcanzadas
 - Mejor racha de victorias
 - Ganancia/pérdida total
+- Mejor mano (mayor número de cartas sin pasarse, ej: 5 cartas con 21)
+- Estadísticas por decisión: porcentaje de veces que el jugador eligió Hit, Stand, Double, Split o Surrender
 
 ### Historial de Manos
 Cada sesión guarda las últimas 10 manos con:
@@ -338,11 +348,17 @@ Accede al historial con el botón 📜 durante el juego.
 Edita `server/src/main/resources/server-config.properties`:
 
 ```properties
+# Host del servidor
+server.host=localhost
+
 # Puerto del servidor
 server.port=9999
 
+# Máximo de clientes simultáneos
+max.clients=10
+
 # Máximo de jugadores por mesa (PVP)
-server.maxPlayersPerTable=4
+server.maxPlayersPerTable=5
 
 # Habilitar modos
 server.pveEnabled=true
@@ -354,6 +370,19 @@ server.connectionTimeout=60
 # Archivo de records
 server.recordsFile=records.json
 ```
+
+## 🎛️ Configuración del Juego (Reglas)
+
+Las siguientes reglas son configurables desde la pantalla de **Configuración** del cliente:
+
+| Parámetro | Opciones | Por defecto |
+|-----------|----------|-------------|
+| Número de mazos | 1, 2, 4 | 1 |
+| Pago de Blackjack | 3:2 / 6:5 | 3:2 |
+| Regla del dealer | 17 blando / 17 duro | 17 duro |
+| Doblar después de dividir | Sí / No | Sí |
+| Número máximo de splits | 1, 2, 3 | 3 |
+| Número de rondas | Libre (hasta agotar fichas) / Fijo (1–50) | Libre |
 
 ## 🛠️ Tecnologías Utilizadas
 
@@ -413,6 +442,24 @@ Para probar múltiples clientes simultáneamente:
 
 Todos los mensajes son JSON serializados con kotlinx.serialization.
 
+### Ejemplo de Flujo de Mensajes
+
+```
+Cliente → Servidor: JoinGame     {"playerName":"Player1","gameMode":"PVE","buyIn":1000}
+Servidor → Cliente: JoinConfirmation  {"playerId":"abc123","chips":1000}
+Servidor → Cliente: TableState   {"players":[...],"minBet":10,"maxBet":500}
+Servidor → Cliente: RequestBet   {"minBet":10,"maxBet":500,"chips":1000}
+
+Cliente → Servidor: PlaceBet     {"amount":50,"numberOfHands":1}
+Servidor → Cliente: GameState    {"playerHand":[{"rank":"K","suit":"HEARTS"},{"rank":"7","suit":"DIAMONDS"}],"dealerHand":[{"rank":"A","suit":"SPADES","hidden":false},{"rank":"?","hidden":true}],"phase":"PLAYING"}
+
+Cliente → Servidor: RequestCard  {}
+Servidor → Cliente: GameState    {"playerHand":[...],"playerScore":19,"phase":"PLAYING"}
+
+Cliente → Servidor: Stand        {}
+Servidor → Cliente: GameResult   {"result":"WIN","payout":50,"finalChips":1050,"dealerHand":[...]}
+```
+
 ## 📦 Estructura de Datos
 
 ### Card (Carta)
@@ -460,3 +507,4 @@ Proyecto desarrollado como parte del curso de DAM (Desarrollo de Aplicaciones Mu
 ## 📄 Licencia
 
 Proyecto educativo - Uso libre para aprendizaje.
+
