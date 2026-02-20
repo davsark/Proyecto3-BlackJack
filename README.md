@@ -286,7 +286,7 @@ As + carta de valor 10 con solo 2 cartas = **Blackjack** (paga 3:2)
 
 ### Jugar Múltiples Manos
 
-1. En la pantalla de apuestas, selecciona **1, 2 o 3 manos**
+1. En la pantalla de apuestas, selecciona **1, 2, 3 o 4 manos**
 2. Cada mano tiene su propia apuesta (apuesta × número de manos)
 3. Juega cada mano por turnos
 4. El dealer juega contra todas tus manos al final
