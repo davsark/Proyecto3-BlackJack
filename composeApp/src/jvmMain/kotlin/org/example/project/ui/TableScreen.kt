@@ -644,36 +644,85 @@ private fun BettingControls(
 
         Spacer(modifier = Modifier.height(4.dp))
 
+        // Fila: [Repetir] [10] [25] [50] [100] [500] [REPARTIR]
         Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.padding(vertical = 4.dp)
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            listOf(
-                10 to Color(0xFF2196F3),   // Azul
-                25 to Color(0xFF4CAF50),   // Verde
-                50 to Color(0xFFE91E63),   // Rosa
-                100 to Color(0xFF9C27B0),  // Morado
-                500 to Color(0xFFFF9800)   // Naranja
-            ).forEach { (chip, color) ->
-                val canAfford = selectedBet + chip <= actualMaxBet
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (canAfford) color else Color.Gray.copy(alpha = 0.3f)
-                        )
-                        .border(3.dp, Color(0xFFFFD700), CircleShape)
-                        .clickable(enabled = canAfford) {
-                            onBetChange(minOf(selectedBet + chip, actualMaxBet))
-                        },
-                    contentAlignment = Alignment.Center
+            // Botón Repetir (izquierda)
+            val showRepeat = lastBet in minBet..minOf(maxBet, playerChips)
+            if (showRepeat) {
+                Button(
+                    onClick = onRepeatLastBet,
+                    modifier = Modifier.size(48.dp),
+                    contentPadding = PaddingValues(0.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3498DB))
                 ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("🔄", fontSize = 12.sp)
+                        Text("$lastBet", fontSize = 8.sp, color = Color.White)
+                    }
+                }
+            } else {
+                Spacer(modifier = Modifier.width(48.dp))
+            }
+
+            // Fichas de casino (centro)
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                listOf(
+                    10 to Color(0xFF2196F3),
+                    25 to Color(0xFF4CAF50),
+                    50 to Color(0xFFE91E63),
+                    100 to Color(0xFF9C27B0),
+                    500 to Color(0xFFFF9800)
+                ).forEach { (chip, color) ->
+                    val canAfford = selectedBet + chip <= actualMaxBet
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(if (canAfford) color else Color.Gray.copy(alpha = 0.3f))
+                            .border(3.dp, Color(0xFFFFD700), CircleShape)
+                            .clickable(enabled = canAfford) {
+                                onBetChange(minOf(selectedBet + chip, actualMaxBet))
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (chip >= 100) "${chip/100}00" else "$chip",
+                            fontSize = if (chip >= 100) 11.sp else 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (canAfford) Color.White else Color.Gray
+                        )
+                    }
+                }
+            }
+
+            // Botón REPARTIR (derecha)
+            Button(
+                onClick = onPlaceBet,
+                enabled = totalBet <= playerChips && selectedBet >= minBet,
+                modifier = Modifier.size(48.dp),
+                contentPadding = PaddingValues(0.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF2ECC71),
+                    disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
+                )
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("🎴", fontSize = 12.sp)
                     Text(
-                        text = if (chip >= 100) "${chip/100}00" else "$chip",
-                        fontSize = if (chip >= 100) 11.sp else 14.sp,
+                        text = "DAR!",
+                        fontSize = 8.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (canAfford) Color.White else Color.Gray
+                        color = if (totalBet <= playerChips && selectedBet >= minBet) Color.White else Color.White.copy(alpha = 0.4f)
                     )
                 }
             }
@@ -810,45 +859,6 @@ private fun BettingControls(
             }
         }
         
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Botones de acción
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            // Repetir última apuesta
-            if (lastBet in minBet..minOf(maxBet, playerChips)) {
-                Button(
-                    onClick = onRepeatLastBet,
-                    modifier = Modifier.weight(1f).height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3498DB))
-                ) {
-                    Text("🔄 $lastBet", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                }
-            }
-
-            // Apostar
-            Button(
-                onClick = onPlaceBet,
-                enabled = totalBet <= playerChips && selectedBet >= minBet,
-                modifier = Modifier
-                    .weight(if (lastBet in minBet..minOf(maxBet, playerChips)) 1.5f else 2f)
-                    .height(48.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF2ECC71),
-                    disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
-                )
-            ) {
-                Text(
-                    text = "🎴 ¡REPARTIR!",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp
-                )
-            }
-        }
     }
 }
 
@@ -865,64 +875,41 @@ private fun PlayingControls(
     onSplit: () -> Unit,
     onSurrender: () -> Unit
 ) {
-    Column(
+    // Una sola fila: [PEDIR grande] [PLANTARSE] [DOBLAR] [DIVIDIR] [RENDIRSE]
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // Fila principal
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxWidth()
+        // PEDIR — botón principal, más grande
+        Button(
+            onClick = onHit,
+            enabled = canHit,
+            modifier = Modifier.weight(1.8f).height(64.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF2ECC71),
+                disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
+            )
         ) {
-            ActionButton(
+            Text(
                 text = "🎴 PEDIR",
-                enabled = canHit,
-                color = Color(0xFF2ECC71),
-                modifier = Modifier.weight(1f),
-                onClick = onHit
-            )
-            ActionButton(
-                text = "✋ PLANTARSE",
-                enabled = canStand,
-                color = Color(0xFFF39C12),
-                modifier = Modifier.weight(1f),
-                onClick = onStand
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (canHit) Color.White else Color.White.copy(alpha = 0.5f)
             )
         }
-        
-        Spacer(modifier = Modifier.height(10.dp))
-        
-        // Fila secundaria
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            ActionButton(
-                text = "💰 DOBLAR",
-                enabled = canDouble,
-                color = Color(0xFF3498DB),
-                modifier = Modifier.weight(1f),
-                small = true,
-                onClick = onDouble
-            )
-            ActionButton(
-                text = "✂️ DIVIDIR",
-                enabled = canSplit,
-                color = Color(0xFF9B59B6),
-                modifier = Modifier.weight(1f),
-                small = true,
-                onClick = onSplit
-            )
-            ActionButton(
-                text = "🏳️ RENDIRSE",
-                enabled = canSurrender,
-                color = Color(0xFFE74C3C),
-                modifier = Modifier.weight(1f),
-                small = true,
-                onClick = onSurrender
-            )
-        }
+
+        // Botones compactos — todos en la misma fila
+        CompactPlayButton("✋", "PLANT.", canStand, Color(0xFFF39C12),
+            Modifier.weight(1f).height(64.dp), onStand)
+        CompactPlayButton("💰", "DOBL.", canDouble, Color(0xFF3498DB),
+            Modifier.weight(1f).height(64.dp), onDouble)
+        CompactPlayButton("✂️", "DIV.", canSplit, Color(0xFF9B59B6),
+            Modifier.weight(1f).height(64.dp), onSplit)
+        CompactPlayButton("🏳️", "REND.", canSurrender, Color(0xFFE74C3C),
+            Modifier.weight(1f).height(64.dp), onSurrender)
     }
 }
 
@@ -951,6 +938,39 @@ private fun ActionButton(
             fontWeight = FontWeight.Bold,
             color = if (enabled) Color.White else Color.White.copy(alpha = 0.5f)
         )
+    }
+}
+
+@Composable
+private fun CompactPlayButton(
+    emoji: String,
+    label: String,
+    enabled: Boolean,
+    color: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp),
+        contentPadding = PaddingValues(4.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = color,
+            disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
+        )
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(emoji, fontSize = 15.sp)
+            Text(
+                text = label,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (enabled) Color.White else Color.White.copy(alpha = 0.5f),
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 
