@@ -80,7 +80,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: client-${{ matrix.os }}
-          path: composeApp/build/compose/binaries/main/app/*
+          # Usamos ** para encontrar los archivos sin importar la subcarpeta de formato
+          path: composeApp/build/compose/binaries/main/**
 
   # ══════════════════════════════════════════════════════════════
   # 3. TRABAJO: PUBLICACIÓN
@@ -98,13 +99,10 @@ jobs:
 
       - name: 📢 Imprimir resumen de archivos generados
         run: |
-          echo -e "\033[1;36m==================================================\033[0m"
-          echo -e "\033[1;32m📦 ARCHIVOS LISTOS PARA LA RELEASE:\033[0m"
-          echo -e "\033[1;36m==================================================\033[0m"
-          ls -lh release-files/
+          ls -R release-files/
 
       - name: 🎉 Crear Release oficial
         uses: softprops/action-gh-release@v2
         with:
-          files: release-files/*
+          files: release-files/**/*
           generate_release_notes: true
