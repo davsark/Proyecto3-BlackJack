@@ -1,0 +1,109 @@
+name: 🎰 Compilar y Publicar Blackjack
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # ══════════════════════════════════════════════════════════════
+  # 1. TRABAJO: SERVIDOR
+  # ══════════════════════════════════════════════════════════════
+  build-server:
+    name: 🖥️ Compilar Servidor (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Clonar el código
+        uses: actions/checkout@v4
+
+      - name: ☕ Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: 🔑 Dar permisos de ejecución a Gradle
+        run: |
+          echo -e "\033[1;34m[INFO] Otorgando permisos a gradlew...\033[0m"
+          chmod +x gradlew
+
+      - name: ⚙️ Compilar ZIP del Servidor
+        run: |
+          echo -e "\033[1;36m==================================================\033[0m"
+          echo -e "\033[1;33m🎰 INICIANDO COMPILACIÓN DEL SERVIDOR BLACKJACK...\033[0m"
+          echo -e "\033[1;36m==================================================\033[0m"
+          ./gradlew :server:distZip --console=rich
+          echo -e "\033[1;32m✅ ¡Compilación del servidor completada con éxito!\033[0m"
+
+      - name: 📤 Subir ZIP como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-zip
+          path: server/build/distributions/*.zip
+
+  # ══════════════════════════════════════════════════════════════
+  # 2. TRABAJO: CLIENTES (MATRIZ)
+  # ══════════════════════════════════════════════════════════════
+  build-clients:
+    name: 🎮 Compilar Cliente (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - name: 📥 Clonar el código
+        uses: actions/checkout@v4
+
+      - name: ☕ Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: 🔑 Dar permisos a Gradle (Mac/Linux)
+        if: runner.os != 'Windows'
+        run: chmod +x gradlew
+
+      - name: 📦 Crear instalador nativo del Cliente
+        run: |
+          echo -e "\033[1;35m==================================================\033[0m"
+          echo -e "\033[1;33m🎨 EMPAQUETANDO CLIENTE PARA ${{ matrix.os }}...\033[0m"
+          echo -e "\033[1;35m==================================================\033[0m"
+          ./gradlew :composeApp:packageDistributionForCurrentOS --console=rich
+          echo -e "\033[1;32m✅ ¡Instalador de ${{ matrix.os }} generado correctamente!\033[0m"
+
+      - name: 📤 Subir instalador como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-${{ matrix.os }}
+          path: composeApp/build/compose/binaries/main/app/*
+
+  # ══════════════════════════════════════════════════════════════
+  # 3. TRABAJO: PUBLICACIÓN
+  # ══════════════════════════════════════════════════════════════
+  create-release:
+    name: 🚀 Publicar en GitHub Releases
+    needs: [build-server, build-clients]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🧲 Descargar todos los artefactos temporales
+        uses: actions/download-artifact@v4
+        with:
+          path: release-files
+          merge-multiple: true
+
+      - name: 📢 Imprimir resumen de archivos generados
+        run: |
+          echo -e "\033[1;36m==================================================\033[0m"
+          echo -e "\033[1;32m📦 ARCHIVOS LISTOS PARA LA RELEASE:\033[0m"
+          echo -e "\033[1;36m==================================================\033[0m"
+          ls -lh release-files/
+
+      - name: 🎉 Crear Release oficial
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-files/*
+          generate_release_notes: true
