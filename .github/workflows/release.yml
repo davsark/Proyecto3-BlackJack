@@ -68,6 +68,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: 📦 Crear instalador nativo del Cliente
+        shell: bash
         run: |
           echo -e "\033[1;35m==================================================\033[0m"
           echo -e "\033[1;33m🎨 EMPAQUETANDO CLIENTE PARA ${{ matrix.os }}...\033[0m"
